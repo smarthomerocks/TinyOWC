@@ -1,0 +1,27 @@
+[
+  {
+    "name": "mqttserver",
+    "type": "ACInput",
+    "value": "",
+    "placeholder": "MQTT broker server",
+    "label": "Server"
+  },
+  {
+    "name": "mqttserver_port",
+    "type": "ACInput",
+    "value": "1883",
+    "label": "Port"
+  },
+  {
+    "name": "mqtt_topic",
+    "type": "ACInput",
+    "value": "home/tiny-owc/status",
+    "label": "Publish topic"
+  },
+  {
+    "name": "mqtt_cmdtopic",
+    "type": "ACInput",
+    "value": "home/tiny-owc/command",
+    "label": "Command topic"
+  }
+]
