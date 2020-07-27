@@ -28,8 +28,8 @@ enum DS18B20_CONVERSION_TIME   : uint16_t {
   DS18B20_12BIT_TIME = 750,         //  12 bit  750.00 ms conversion time w/pad
 };
 
-#define DS18B20_TEMP_HI_REG 0x55                     //  set to a known value, checkerboard pattern (could be used to abort a "going to fail" crc check)
-#define DS18B20_TEMP_LO_REG 0xAA                     //  set to a known value, checkerboard pattern (ditto)
+#define DS18B20_TEMP_HI_REG 0x55    //  set to a known value, checkerboard pattern (could be used to abort a "going to fail" crc check)
+#define DS18B20_TEMP_LO_REG 0xAA    //  set to a known value, checkerboard pattern (ditto)
 
 #define UNSET_TEMPERATURE -1024 // just a value indicating the variable has no value.
 
@@ -92,7 +92,7 @@ int16_t _readConversion(DS2480B &ds, const uint8_t addr[8]) {
     // even when compiled on a 32 bit processor.
     int16_t raw = (data[1] << 8) | data[0];
 
-    if (addr[0] == 0x10) {  // old DS18S20 or DS1820
+    if (addr[0] == DS18S20) {  // old DS18S20 or DS1820
       raw = raw << 3; // 9 bit resolution default
       if (data[7] == 0x10) {
         // "count remain" gives full 12 bit resolution
@@ -133,8 +133,7 @@ float rawToCelsius(int16_t raw) {
 }
 
 bool isTemperatureSensor(uint8_t familyId) {
-  // only 12-bits devices supported just now. See setupAllSensors()
-  return familyId == DS1822 || familyId == DS18B20;
+  return familyId == DS1822 || familyId == DS18S20 || familyId == DS18B20;
 }
 
 #endif

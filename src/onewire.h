@@ -34,8 +34,8 @@ String familyIdToNameTranslation(uint8_t familyId) {
           return "DS2413";
         case DS2408:
           return "DS2408";
-        //case DS18S20:
-        //  return "DS18S20"; // only 12-bits devices supported just now. See ds18x20.setupAllSensors()
+        case DS18S20:
+          return "DS18S20";
         case DS18B20:
           return "DS18B20";
         case DS1822:

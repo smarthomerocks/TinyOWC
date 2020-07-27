@@ -189,7 +189,7 @@ void scanOneWireNetwork() {
         Serial.write(' ');
         Serial.print(addr[i], HEX);
       }
-      Serial.print(", ");
+      Serial.println();
       tft.print(".");
 
       if (DS2480B::crc8(addr, 7) != addr[7]) {
@@ -331,6 +331,18 @@ void printOneWireNodes() {
     for (auto i : oneWireNodes) {
       if (isTemperatureSensor(i.familyId)) {
         snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+      } else if (i.familyId == DS2408) {
+        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d %d %d %d %d %d %d",
+         i.idStr.c_str(),
+         familyIdToNameTranslation(i.familyId).c_str(),
+         i.actuatorPinState[0],
+         i.actuatorPinState[1],
+         i.actuatorPinState[2],
+         i.actuatorPinState[3],
+         i.actuatorPinState[4],
+         i.actuatorPinState[5],
+         i.actuatorPinState[6],
+         i.actuatorPinState[7]);
       } else {
         snprintf(buff, sizeof(buff), "%s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
       }
