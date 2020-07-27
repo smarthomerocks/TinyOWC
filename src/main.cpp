@@ -231,7 +231,7 @@ void scanOneWireNetwork() {
 
 void loadSettings() {
   auto serializedNodes = preferences.getString("nodes", "[]");
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(4096);
 
   auto error = deserializeJson(doc, serializedNodes);
 
@@ -264,7 +264,7 @@ void loadSettings() {
 }
 
 void saveSettings(std::vector<onewireNode> &nodes) {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(4096);
   JsonArray nodesArray = doc.to<JsonArray>();
   
   for (auto n : nodes) {
@@ -330,7 +330,11 @@ void printOneWireNodes() {
   if (oneWireNodes.size() > 0) {
     for (auto i : oneWireNodes) {
       if (isTemperatureSensor(i.familyId)) {
-        snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+        if (i.failedReadingsInRow < 5) {
+          snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+        } else {
+          snprintf(buff, sizeof(buff), "%s (%s): Not connected.", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+        }
       } else if (i.familyId == DS2408) {
         snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d %d %d %d %d %d %d",
          i.idStr.c_str(),
@@ -348,8 +352,6 @@ void printOneWireNodes() {
       }
       tft.println(buff);
       Serial.println(buff);
-      tft.println();
-      Serial.println();
     }
 
     tft.drawString("Samples since power-on: " + String(numberOfSamplesSinceReboot), 0, tft.height() - tft.fontHeight() * 2);
@@ -694,7 +696,7 @@ void setup() {
 }
 
 void pushStateToMQTT() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(4096);
   JsonArray nodesArray = doc.to<JsonArray>();
   auto time = getEpocTime();
 
@@ -741,6 +743,7 @@ void actOnSensors() {
         auto reading = readConversion(ds, node.id);
 
         if (reading != UNSET_TEMPERATURE) {
+          node.failedReadingsInRow = 0;
           auto temperature = rawToCelsius(reading);
 
           // filter some noise by only including changes larger than 0.5 degrees.
@@ -768,6 +771,8 @@ void actOnSensors() {
               }
             }            
           }
+        } else {
+          node.failedReadingsInRow++;
         }
       } else if (node.familyId == DS2408) {
         auto pinState = getState(ds, node.id);

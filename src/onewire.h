@@ -16,6 +16,7 @@ struct onewireNode {
   float highLimit = UNSET_TEMPERATURE;       // only applicable on temperature sensors.
   float temperature = UNSET_TEMPERATURE;     // only applicable on temperature sensors.
   float lastTemperature = UNSET_TEMPERATURE; // only applicable on temperature sensors.
+  uint16_t failedReadingsInRow = 0; // only applicable on temperature sensors.
   uint8_t actuatorId[8] = {}; // e.g. 29,29,E1,3,0,0,0,9C, only applicable on temperature sensors.
   int8_t actuatorPin = -1;    // only applicable on temperature sensors.
   bool actuatorPinState[8] = {false, false, false, false, false, false, false, false}; // only applicable on DS2408 nodes.
