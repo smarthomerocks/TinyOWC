@@ -58,8 +58,6 @@ static const char* TAG = "TinyOWC";
 
 //TODO: 
 //- testa att göra en modul av denna: https://github.com/espressif/arduino-esp32/blob/master/docs/esp-idf_component.md
-//- padda på id på mqtt-topic så att den blir unik per Tiny-OWC!
-//- Temperaturen som avläses verkar inte stämma, 27 grader i rummet låter mycket?
 enum STATES {
   NO_DEVICES,
   START_SCANNING,
@@ -92,12 +90,16 @@ AutoConnect portal(webserver);
 bool portalConnected = false;
 String mqttserver;
 String mqttserver_port;
+String mqtt_base_topic;
 String mqtt_topic;
+String mqtt_base_cmdtopic;
 String mqtt_cmdtopic;
 TimerHandle_t mqttReconnectTimer;
 
 String uniqueId = String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
 String appName = "Tiny-OWC_" + uniqueId;
+
+extern void pushStateToMQTT();
 
 void clearScreen() {
   tft.fillScreen(TFT_BLACK);
@@ -311,11 +313,10 @@ void secondButtonClick(Button2& btn) {
     saveSettings(scannedOneWireNodes);
     oneWireNodes = scannedOneWireNodes;
     scannedOneWireNodes.clear();
+    clearScreen();
   } else if (state == NO_DEVICES || state == OPERATIONAL) {
     state = START_SCANNING;
   }
-
-  clearScreen();
 }
 
 void printOneWireNodes() {
@@ -384,24 +385,24 @@ String saveParams(AutoConnectAux &aux, PageArgument &args)
   mqttserver_port = args.arg("mqttserver_port");
   mqttserver_port.trim();
 
-  mqtt_topic = args.arg("mqtt_topic");
-  mqtt_topic.trim();
+  mqtt_base_topic = args.arg("mqtt_base_topic");
+  mqtt_base_topic.trim();
 
-  mqtt_cmdtopic = args.arg("mqtt_cmdtopic");
-  mqtt_cmdtopic.trim();
+  mqtt_base_cmdtopic = args.arg("mqtt_base_cmdtopic");
+  mqtt_base_cmdtopic.trim();
 
   // The entered value is owned by AutoConnectAux of /mqtt_settings.
   // To retrieve the elements of /mqtt_settings, it is necessary to get the AutoConnectAux object of /mqtt_settings.
   File param = SPIFFS.open(PARAM_FILE, "w");
-  portal.aux(AUX_MQTTSETTING)->saveElement(param, {"mqttserver", "mqttserver_port", "mqtt_topic", "mqtt_cmdtopic"});
+  portal.aux(AUX_MQTTSETTING)->saveElement(param, {"mqttserver", "mqttserver_port", "mqtt_base_topic", "mqtt_base_cmdtopic"});
   param.close();
 
   // Echo back saved parameters to AutoConnectAux page.
   AutoConnectText &echo = aux["parameters"].as<AutoConnectText>();
   echo.value = "Server: " + mqttserver + "<br>";
   echo.value += "Port: " + mqttserver_port + "<br>";
-  echo.value += "Publish topic: " + mqtt_topic + "<br>";
-  echo.value += "Command topic: " + mqtt_cmdtopic + "<br>";
+  echo.value += "Publish topic: " + mqtt_base_topic + "<br>";
+  echo.value += "Command topic: " + mqtt_base_cmdtopic + "<br>";
 
   return String("");
 }
@@ -514,6 +515,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       node->highLimit = highLimit;
       saveSettings(oneWireNodes);
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
+      pushStateToMQTT();
     }    
   }
 }
@@ -571,6 +573,10 @@ void setup() {
   tft.println("Device name: " + appName);
   Serial.println("Device name: " + appName);
 
+  snprintf(buff, sizeof(buff), "Buildtime: %s %s", __DATE__, __TIME__);
+  tft.println(buff);
+  Serial.println(buff);
+
   preferences.begin("tiny-owc", false);
   loadSettings();
   tft.println("Settings loaded.");
@@ -606,8 +612,8 @@ void setup() {
   loadParams(mqtt_setting, args);
   AutoConnectInput &mqttserverElm = mqtt_setting["mqttserver"].as<AutoConnectInput>();
   AutoConnectInput &mqttserver_portElm = mqtt_setting["mqttserver_port"].as<AutoConnectInput>();
-  AutoConnectInput &mqtt_topicElm = mqtt_setting["mqtt_topic"].as<AutoConnectInput>();
-  AutoConnectInput &mqtt_cmdtopicElm = mqtt_setting["mqtt_cmdtopic"].as<AutoConnectInput>();
+  AutoConnectInput &mqtt_topicElm = mqtt_setting["mqtt_base_topic"].as<AutoConnectInput>();
+  AutoConnectInput &mqtt_cmdtopicElm = mqtt_setting["mqtt_base_cmdtopic"].as<AutoConnectInput>();
 
   if (mqttserverElm.value.length()) {
     mqttserver = mqttserverElm.value;    
@@ -618,11 +624,13 @@ void setup() {
     ESP_LOGI(TAG, "mqttserver_port set to '%d'", mqttserver_port.toInt());
   }
   if (mqtt_topicElm.value.length()) {
-    mqtt_topic = mqtt_topicElm.value;
+    mqtt_base_topic = mqtt_topicElm.value;
+    mqtt_topic = mqtt_base_topic + "/" + uniqueId;
     ESP_LOGI(TAG, "mqtt_topic set to '%s'", mqtt_topic.c_str());
   }
   if (mqtt_cmdtopicElm.value.length()) {
-    mqtt_cmdtopic = mqtt_cmdtopicElm.value;
+    mqtt_base_cmdtopic = mqtt_cmdtopicElm.value;
+    mqtt_cmdtopic = mqtt_base_cmdtopic + "/" + uniqueId;
     ESP_LOGI(TAG, "mqtt_cmdtopic set to '%s'", mqtt_cmdtopic.c_str());
   }
 
@@ -692,6 +700,13 @@ void setup() {
 
   printOneWireNodes();
 
+  // Set DS2408 to a known state (all relayes off).
+  for (auto &node : oneWireNodes) {
+    if (node.familyId == DS2408) {
+      setState(ds, node.id, B11111111);
+    }
+  }
+
   Serial.println("Setup() done.");
 }
 
@@ -724,7 +739,6 @@ void pushStateToMQTT() {
 
   String jsonString;
   serializeJson(doc, jsonString);
-
   mqttClient.publish(mqtt_topic.c_str(), 1, true, jsonString.c_str());
 }
 
@@ -763,8 +777,7 @@ void actOnSensors() {
                   // set correct bit, IF we manage to get current state from DS2408.
                   auto oldActuatorState = actuatorState;
                   node.status = node.temperature < node.lowLimit;
-
-                  bitWrite(actuatorState, node.actuatorPin, node.status);
+                  bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
                   setState(ds, node.actuatorId, actuatorState);
                   ESP_LOGI(TAG, "Adjusted DS2408 state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
                 }
