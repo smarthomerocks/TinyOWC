@@ -1,7 +1,3 @@
-#define AUTOCONNECT_PAGETITLE_CONFIG "Tiny-OWC config"
-//TODO: this SHOULD override define in AutoConnectDefs.h! Why does it not?
-#define AUTOCONNECT_URI "/setup"
-
 #include <Arduino.h>
 #define ARDUINOJSON_USE_LONG_LONG 1 // https://arduinojson.org/v6/api/config/use_long_long/, to use 64-bit long in getEpocTime().
 #include <ArduinoJson.h>
@@ -57,13 +53,30 @@ extern "C" {
 static const char* TAG = "TinyOWC";
 
 //TODO: 
-//- testa att göra en modul av denna: https://github.com/espressif/arduino-esp32/blob/master/docs/esp-idf_component.md
+//- Try make a module out of this project: https://github.com/espressif/arduino-esp32/blob/master/docs/esp-idf_component.md
+
 enum STATES {
   NO_DEVICES,
   START_SCANNING,
   SCANNING_DONE,
   OPERATIONAL
 };
+
+const char Base_Html[] PROGMEM = R"rawliteral(
+  <!DOCTYPE HTML>
+  <html lang="en">
+    <head>
+      <title>Tiny-OWC</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="icon" href="data:,">
+    </head>
+    <body>
+      <h1>Tiny-OWC</h1>
+      <h3>1-Wire devices:</h3>
+      %ONE_WIRE_DEVICES%
+    </body>
+  </html>
+)rawliteral";
 
 const String PROGRESS_INDICATOR[] = { "|", "/", "-", "\\" };
 uint8_t progressIndicator = 0;
@@ -541,6 +554,40 @@ void WiFiEvent(WiFiEvent_t event) {
     }
 }
 
+void handle_indexHtml() {
+  auto html = String(Base_Html);
+
+  String oneWireList = "<ul>";
+  for (auto i : oneWireNodes) {
+    if (isTemperatureSensor(i.familyId)) {
+        if (i.failedReadingsInRow < 5) {
+          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, status: %s</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+        } else {
+          snprintf(buff, sizeof(buff), "<li>%s (%s): Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+        }
+    } else if (i.familyId == DS2408) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d %d %d %d %d %d %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1],
+        i.actuatorPinState[2],
+        i.actuatorPinState[3],
+        i.actuatorPinState[4],
+        i.actuatorPinState[5],
+        i.actuatorPinState[6],
+        i.actuatorPinState[7]);
+    } else {
+      snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+    }
+
+    oneWireList += String(buff);
+  }
+  oneWireList += "</ul>";
+  html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
+  webserver.send(200, "text/html", html);
+}
+
 void handle_ping() {
   webserver.send(200, "text/plain", "pong");
 }
@@ -573,10 +620,6 @@ void setup() {
   tft.println("Device name: " + appName);
   Serial.println("Device name: " + appName);
 
-  snprintf(buff, sizeof(buff), "Buildtime: %s %s", __DATE__, __TIME__);
-  tft.println(buff);
-  Serial.println(buff);
-
   preferences.begin("tiny-owc", false);
   loadSettings();
   tft.println("Settings loaded.");
@@ -603,7 +646,7 @@ void setup() {
     ESP.restart();
   }
 
-  tft.println("Pages from SPIFFS.");
+  tft.println("Pages loaded from SPIFFS.");
   Serial.println("Web pages loaded from SPIFFS.");
 
   AutoConnectAux *settings = portal.aux(AUX_MQTTSETTING);
@@ -637,8 +680,6 @@ void setup() {
   portal.on(AUX_MQTTSETTING, loadParams);
   portal.on(AUX_MQTTSAVE, saveParams);
 
-  watchdogSetup();
-
   if (mqttserver.length() > 0 && mqttserver_port.length() > 0) {
     mqttClient.onConnect(onMqttConnect);
     mqttClient.onDisconnect(onMqttDisconnect);
@@ -659,12 +700,13 @@ void setup() {
   config.title = appName;
   config.bootUri = AC_ONBOOTURI_HOME; // add menuitem for OTA update
   config.homeUri = "/";
-  config.portalTimeout = 60000; // continue in offline mode after 60 seconds if WiFi connection not available
+  config.portalTimeout = 45000; // continue in offline mode after 45 seconds, if WiFi connection not available
+  config.retainPortal = true;   // continue the portal function even if the captive portal timed out
   config.psk = "12345678";      // default password
   config.ota = AC_OTA_BUILTIN; 
   portal.config(config);
 
-  webserver.on("/", handleRoot);
+  webserver.on("/", handle_indexHtml);
   webserver.on("/ping", handle_ping);
   portal.onDetect(startedCapturePortal);
   
@@ -685,12 +727,17 @@ void setup() {
     Serial.println("Capture portal started, IP:" + WiFi.localIP().toString() + "/setup");
   }
 
-  delay(2000);
+  delay(3000);
 
   clearScreen();
   tft.setTextSize(3);
   tft.drawString("Tiny-OWC", tft.width() / 2, tft.height() / 2);
-
+  tft.setTextSize(1);
+  tft.setCursor(0, tft.height() - tft.fontHeight());
+  snprintf(buff, sizeof(buff), "Build: %s %s", __DATE__, __TIME__);
+  tft.println(buff);
+  Serial.println(buff);
+  
   delay(2000);
 
   firstButton.setClickHandler(firstButtonClick);
