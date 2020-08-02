@@ -74,6 +74,9 @@ const char Base_Html[] PROGMEM = R"rawliteral(
       <h1>Tiny-OWC</h1>
       <h3>1-Wire devices:</h3>
       %ONE_WIRE_DEVICES%
+      <p>
+        <a href="/setup">Setup</a>
+      </p>
     </body>
   </html>
 )rawliteral";
@@ -330,6 +333,15 @@ void secondButtonClick(Button2& btn) {
   } else if (state == NO_DEVICES || state == OPERATIONAL) {
     state = START_SCANNING;
   }
+}
+
+void secondButtonTrippleClick(Button2& btn) {
+  ESP_LOGD(TAG, "secondButtonTrippleClick(), erasing all known nodes!");
+
+  oneWireNodes.clear();
+  scannedOneWireNodes.clear();
+  preferences.putString("nodes", "[]");
+  ESP.restart();
 }
 
 void printOneWireNodes() {
@@ -744,6 +756,7 @@ void setup() {
   firstButton.setLongClickHandler(firstButtonClick);
   secondButton.setClickHandler(secondButtonClick);
   secondButton.setLongClickHandler(secondButtonClick);
+  secondButton.setTripleClickHandler(secondButtonTrippleClick);
 
   printOneWireNodes();
 
