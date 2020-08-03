@@ -512,7 +512,9 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
   }
 
   auto command = doc["command"];
-  if (!command.isNull() && command == "setSensor") {
+  if (command.isNull()) return;
+
+  if (command == "setSensor") {
     /* Example
     {
       "command": "setSensor",
@@ -521,6 +523,10 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       "actuatorPin": 0,
       "lowLimit": 20,
       "highLimit": 28
+    }
+    or
+    {
+      "command": "getStatus"
     }
     */
     auto id = doc["id"].as<String>();
@@ -542,6 +548,8 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
       pushStateToMQTT();
     }    
+  } else if (command == "getStatus") {
+    pushStateToMQTT();
   }
 }
 
