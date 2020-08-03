@@ -69,6 +69,11 @@ const char Base_Html[] PROGMEM = R"rawliteral(
       <title>Tiny-OWC</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <link rel="icon" href="data:,">
+      <style>
+        * {
+            font-family: courier, arial, helvetica;
+          }
+      </style>
     </head>
     <body>
       <h1>Tiny-OWC</h1>
