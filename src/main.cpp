@@ -479,7 +479,10 @@ void watchdogSetup() {
 void onMqttConnect(bool sessionPresent) {
   ESP_LOGI(TAG, "Connected to MQTT. Session present: %s", String(sessionPresent));
   if (mqtt_cmdtopic.length() > 0) {
+    // TODO: should we subscribe if session is already pressent? Maybe not...
     mqttClient.subscribe(mqtt_cmdtopic.c_str(), 2);
+    // make sure broker has our current state.
+    pushStateToMQTT();
   }
 }
 
