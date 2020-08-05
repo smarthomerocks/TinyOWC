@@ -378,6 +378,25 @@ void printOneWireNodes() {
          i.actuatorPinState[5],
          i.actuatorPinState[6],
          i.actuatorPinState[7]);
+      } else if (i.familyId == DS2406) {
+        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d",
+         i.idStr.c_str(),
+         familyIdToNameTranslation(i.familyId).c_str(),
+         i.actuatorPinState[0],
+         i.actuatorPinState[1]);
+      } else if (i.familyId == DS2405) {
+        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d",
+         i.idStr.c_str(),
+         familyIdToNameTranslation(i.familyId).c_str(),
+         i.actuatorPinState[0]);
+      } else if (i.familyId == DS2423) {
+        snprintf(buff, sizeof(buff), "%s (%s)\nCounters: %d %d %d %d",
+         i.idStr.c_str(),
+         familyIdToNameTranslation(i.familyId).c_str(),
+         i.counters[0],
+         i.counters[1],
+         i.counters[2],
+         i.counters[3]);
       } else {
         snprintf(buff, sizeof(buff), "%s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
       }
@@ -589,7 +608,7 @@ void handle_indexHtml() {
   for (auto i : oneWireNodes) {
     if (isTemperatureSensor(i.familyId)) {
         if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, status: %s</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.actuatorPin, i.status ? "open" : "close");
         } else {
           snprintf(buff, sizeof(buff), "<li>%s (%s): Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
         }
@@ -605,6 +624,25 @@ void handle_indexHtml() {
         i.actuatorPinState[5],
         i.actuatorPinState[6],
         i.actuatorPinState[7]);
+    } else if (i.familyId == DS2406) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1]);
+    } else if (i.familyId == DS2405) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0]);
+    } else if (i.familyId == DS2423) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), counters: %d %d %d %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.counters[0],
+        i.counters[1],
+        i.counters[2],
+        i.counters[3]);
     } else {
       snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
     }
@@ -809,6 +847,18 @@ void pushStateToMQTT() {
       auto pinStateArray = jsonNode.createNestedArray("pinState");
       for (auto i : node.actuatorPinState) {
         pinStateArray.add(i);
+      }
+    } else if (node.familyId == DS2406) {
+      auto pinStateArray = jsonNode.createNestedArray("pinState");
+      pinStateArray.add(pinStateArray[0]);
+      pinStateArray.add(pinStateArray[1]);
+    } else if (node.familyId == DS2405) {
+      auto pinStateArray = jsonNode.createNestedArray("pinState");
+      pinStateArray.add(pinStateArray[0]);
+    } else if (node.familyId == DS2423) {
+      auto countersArray = jsonNode.createNestedArray("counters");
+      for (auto i : node.counters) {
+        countersArray.add(i);
       }
     }
   }
