@@ -120,7 +120,8 @@ TimerHandle_t mqttReconnectTimer;
 String uniqueId = String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
 String appName = "Tiny-OWC_" + uniqueId;
 
-extern void pushStateToMQTT();
+extern void pushStateToMQTT(onewireNode& node);
+extern void pushAllStateToMQTT();
 
 void clearScreen() {
   tft.fillScreen(TFT_BLACK);
@@ -378,7 +379,7 @@ void printOneWireNodes() {
          i.actuatorPinState[5],
          i.actuatorPinState[6],
          i.actuatorPinState[7]);
-      } else if (i.familyId == DS2406) {
+      } else if (i.familyId == DS2406 || i.familyId == DS2413) {
         snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d",
          i.idStr.c_str(),
          familyIdToNameTranslation(i.familyId).c_str(),
@@ -506,7 +507,7 @@ void onMqttConnect(bool sessionPresent) {
     // TODO: should we subscribe if session is already pressent? Maybe not...
     mqttClient.subscribe(mqtt_cmdtopic.c_str(), 2);
     // make sure broker has our current state.
-    pushStateToMQTT();
+    pushAllStateToMQTT();
   }
 }
 
@@ -529,7 +530,7 @@ void onMqttUnsubscribe(uint16_t packetId) {
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   ESP_LOGI(TAG, "MQTT message received, payload: %s", payload);
 
-  DynamicJsonDocument doc(1024);
+  StaticJsonDocument<200> doc;
 
   auto error = deserializeJson(doc, payload);
 
@@ -548,12 +549,8 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       "id": "28.EEA89B19160262",
       "actuatorId": "29.29E1030000009C",
       "actuatorPin": 0,
-      "lowLimit": 20,
-      "highLimit": 28
-    }
-    or
-    {
-      "command": "getStatus"
+      "lowLimit": 22,
+      "highLimit": 24
     }
     */
     auto id = doc["id"].as<String>();
@@ -573,10 +570,24 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       node->highLimit = highLimit;
       saveSettings(oneWireNodes);
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
-      pushStateToMQTT();
+      pushStateToMQTT(*node);
     }    
   } else if (command == "getStatus") {
-    pushStateToMQTT();
+    /* Example
+    {
+      "command": "getStatus",
+      "id": "28.EEA89B19160262"
+    }
+    */
+    auto id = doc["id"].as<String>();
+    auto it = std::find_if (oneWireNodes.begin(), oneWireNodes.end(), [&id](const onewireNode& n) {
+      return n.idStr == id;
+    });
+    if (it != oneWireNodes.end()) {
+      auto node = it.base();
+      ESP_LOGD(TAG, "Pushing status of device '%s'.", id.c_str());
+      pushStateToMQTT(*node);
+    }
   }
 }
 
@@ -624,7 +635,7 @@ void handle_indexHtml() {
         i.actuatorPinState[5],
         i.actuatorPinState[6],
         i.actuatorPinState[7]);
-    } else if (i.familyId == DS2406) {
+    } else if (i.familyId == DS2406 || i.familyId == DS2413) {
       snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d</li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
@@ -779,7 +790,7 @@ void setup() {
   portalConnected = portal.begin();
 
   if (portalConnected) {
-    tft.println("WiFi connected.");
+    tft.println("WiFi connected: " + WiFi.localIP().toString());
     Serial.println("WiFi connected: " + WiFi.localIP().toString());
 
     if (MDNS.begin(appName.c_str())) {
@@ -824,54 +835,56 @@ void setup() {
   Serial.println("Setup() done.");
 }
 
-void pushStateToMQTT() {
-  DynamicJsonDocument doc(4096);
-  JsonArray nodesArray = doc.to<JsonArray>();
+void pushStateToMQTT(onewireNode& node) {
+  StaticJsonDocument<200> jsonNode;
   auto time = getEpocTime();
 
   ESP_LOGD(TAG, "Pushing state to MQTT broker.");
 
-  for (auto &node : oneWireNodes) {
-    auto jsonNode = nodesArray.createNestedObject();
-    jsonNode["id"] = node.idStr;
-    jsonNode["time"] = time;
+  jsonNode["id"] = node.idStr;
+  jsonNode["time"] = time;
 
-    if (isTemperatureSensor(node.familyId)) {
-      jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
-      jsonNode["lowLimit"] = node.lowLimit;
-      jsonNode["highLimit"] = node.highLimit;
-      jsonNode["status"] = node.status;
-      jsonNode["actuatorId"] = idToString(node.actuatorId);
-      jsonNode["actuatorPin"] = node.actuatorPin;
-    } else if (node.familyId == DS2408) {
-      auto pinStateArray = jsonNode.createNestedArray("pinState");
-      for (auto i : node.actuatorPinState) {
-        pinStateArray.add(i);
-      }
-    } else if (node.familyId == DS2406) {
-      auto pinStateArray = jsonNode.createNestedArray("pinState");
-      pinStateArray.add(pinStateArray[0]);
-      pinStateArray.add(pinStateArray[1]);
-    } else if (node.familyId == DS2405) {
-      auto pinStateArray = jsonNode.createNestedArray("pinState");
-      pinStateArray.add(pinStateArray[0]);
-    } else if (node.familyId == DS2423) {
-      auto countersArray = jsonNode.createNestedArray("counters");
-      for (auto i : node.counters) {
-        countersArray.add(i);
-      }
+  if (isTemperatureSensor(node.familyId)) {
+    jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
+    jsonNode["lowLimit"] = node.lowLimit;
+    jsonNode["highLimit"] = node.highLimit;
+    jsonNode["status"] = node.status;
+    jsonNode["actuatorId"] = idToString(node.actuatorId);
+    jsonNode["actuatorPin"] = node.actuatorPin;
+  } else if (node.familyId == DS2408) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    for (auto i : node.actuatorPinState) {
+      pinStateArray.add(i);
+    }
+  } else if (node.familyId == DS2406 || node.familyId == DS2413) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    pinStateArray.add(pinStateArray[0]);
+    pinStateArray.add(pinStateArray[1]);
+  } else if (node.familyId == DS2405) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    pinStateArray.add(pinStateArray[0]);
+  } else if (node.familyId == DS2423) {
+    auto countersArray = jsonNode.createNestedArray("counters");
+    for (auto i : node.counters) {
+      countersArray.add(i);
     }
   }
 
   String jsonString;
-  serializeJson(doc, jsonString);
-  mqttClient.publish(mqtt_topic.c_str(), 1, true, jsonString.c_str());
+  serializeJson(jsonNode, jsonString);
+  auto nodeTopic = mqtt_topic + "/" + node.idStr;
+  mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str());
+}
+
+void pushAllStateToMQTT() {
+  for (auto &node : oneWireNodes) {
+    pushStateToMQTT(node);
+  }
 }
 
 // Main work of Tiny-OWC done here.
 void actOnSensors() {
   auto currentTime = millis();
-  auto updatesAvailable = false;
 
   if (oneWireNodes.size() > 0 && lastReadingTime + SAMPLE_DELAY < currentTime) {
 
@@ -894,21 +907,30 @@ void actOnSensors() {
           if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85) {
             node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
             node.temperature = temperature;
-            updatesAvailable = true;
             // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
             if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
-              if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {                
-                auto actuatorState = getState(ds, node.actuatorId);
-                if (actuatorState > -1) {
-                  // set correct bit, IF we manage to get current state from DS2408.
-                  auto oldActuatorState = actuatorState;
-                  node.status = node.temperature < node.lowLimit;
-                  bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
-                  setState(ds, node.actuatorId, actuatorState);
-                  ESP_LOGI(TAG, "Adjusted DS2408 state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
+              if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
+                auto actuatorNode = getOneWireNode(node.actuatorId);
+                if (actuatorNode != nullptr) {
+                  auto actuatorState = getState(ds, actuatorNode->id);
+                  if (actuatorState > -1) {
+                    // set correct bit, IF we manage to get current state from DS2408.
+                    auto oldActuatorState = actuatorState;
+                    node.status = node.temperature < node.lowLimit;
+                    
+                    bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
+                    auto pinState = setState(ds, node.actuatorId, actuatorState);
+                    for (auto i = 0; i < 8; i++) {
+                      actuatorNode->actuatorPinState[i] = bitRead(pinState, i);
+                    }
+                    ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
+                    pushStateToMQTT(*actuatorNode);
+                  }
                 }
               }
-            }            
+            }
+            
+            pushStateToMQTT(node);           
           }
         } else {
           node.failedReadingsInRow++;
@@ -920,14 +942,16 @@ void actOnSensors() {
             node.actuatorPinState[i] = bitRead(pinState, i);
           }
         }
+      } else if (node.familyId == DS2406 || node.familyId == DS2413) {
+        // TODO
+      } else if (node.familyId == DS2405) {
+        // TODO
+      } else if (node.familyId == DS2423) {
+        // TODO
       }
     }
 
     numberOfSamplesSinceReboot++;
-
-    if (updatesAvailable) {
-      pushStateToMQTT();
-    }
 
     printOneWireNodes();
     

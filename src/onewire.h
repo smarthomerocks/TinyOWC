@@ -93,4 +93,25 @@ void populateNode(onewireNode& node, const uint8_t addr[8]) {
     node.id[i] = addr[i];
   }
 }
+
+onewireNode* getOneWireNode(const uint8_t addr[8]) {
+    auto it = std::find_if (oneWireNodes.begin(), oneWireNodes.end(), [&addr](const onewireNode& n) {
+      return 
+        n.id[0] == addr[0] &&
+        n.id[1] == addr[1] &&
+        n.id[2] == addr[2] &&
+        n.id[3] == addr[3] &&
+        n.id[4] == addr[4] &&
+        n.id[5] == addr[5] &&
+        n.id[6] == addr[6] &&
+        n.id[7] == addr[7];
+    });
+
+    if (it != oneWireNodes.end()) {
+      return it.base();
+    } else {
+      return nullptr;
+    }
+}
+
 #endif
