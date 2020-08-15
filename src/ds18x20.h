@@ -2,7 +2,28 @@
 #define DS18x20_h
 
 #include <DS2480B.h>
+#include "onewire.h"
 // Code from https://community.particle.io/t/success-multiple-single-ds18b20-temp-sensors-on-a-single-onewire-bus/50318/17
+
+// DS18x20 Function commands
+#define CONVERT_T 0x44
+#define READ_SCRATCHPAD 0xBE
+#define WRITE_SCRATCHPAD 0x4E
+#define COPY_SCRATCHPAD 0x48
+#define RECALL 0xB8
+// DS18x20 Scratchpad layout
+#define TEMP_LSB        0
+#define TEMP_MSB        1
+#define HIGH_ALARM_TEMP 2
+#define LOW_ALARM_TEMP  3
+#define CONFIGURATION   4
+#define INTERNAL_BYTE   5
+#define COUNT_REMAIN    6
+#define COUNT_PER_C     7
+#define SCRATCHPAD_CRC  8
+
+#define DS18B20_TEMP_HI_REG 0x55    //  set to a known value, checkerboard pattern (could be used to abort a "going to fail" crc check)
+#define DS18B20_TEMP_LO_REG 0xAA    //  set to a known value, checkerboard pattern (ditto)
 
 // DS18B20 resolution is determined by the byte written to it's configuration register
 enum DS18B20_RESOLUTION : uint8_t {
@@ -28,12 +49,37 @@ enum DS18B20_CONVERSION_TIME   : uint16_t {
   DS18B20_12BIT_TIME = 750,         //  12 bit  750.00 ms conversion time w/pad
 };
 
-#define DS18B20_TEMP_HI_REG 0x55    //  set to a known value, checkerboard pattern (could be used to abort a "going to fail" crc check)
-#define DS18B20_TEMP_LO_REG 0xAA    //  set to a known value, checkerboard pattern (ditto)
+bool isConnected(DS2480B &ds, const uint8_t rom[8]) {
+  if (ds.reset()) {     // onewire initialization sequence, to be followed by other commands
+    ds.select(rom);     // issues onewire "MATCH ROM" address which selects a SPECIFIC device
+    ds.write(READ_SCRATCHPAD); // onewire "READ SCRATCHPAD" command, to access selected DS18B20's scratchpad
+  
+    uint8_t data[9];
+    bool allZeros = true;
 
-#define UNSET_TEMPERATURE -1024 // just a value indicating the variable has no value.
+    for (auto i = 0; i < 9; i++) {           // read whole scratchpad register
+      data[i] = ds.read();
+      // do more work at same time...
+      if (data[i] != 0) {
+        allZeros = false;
+      }
+    }
 
-const uint8_t MAX_CONSECUTIVE_READ_TRIES = 3; // number of read tries before giving up
+    if (allZeros) {
+      return false;
+    }
+
+    auto crc = DS2480B::crc8(data, 8);
+    if (crc != data[8]) {
+      return false;
+    }
+
+    return true;
+
+  } else {
+    return false;
+  }
+}
 
 // this function sets the resolution for ALL DS18B20s on an instantiated OneWire
 void setResolution(DS2480B &ds, uint8_t resolution)  
@@ -116,14 +162,18 @@ int16_t _readConversion(DS2480B &ds, const uint8_t addr[8]) {
 // This function returns the RAW temperature conversion result of a SINGLE selected DS18B20 device (via it's address).
 // Multiple retries are done in case of bus error or CRC missmatch.
 // UNSET_TEMPERATURE is returned if no temperature could be read.
-int16_t readConversion(DS2480B &ds, const uint8_t addr[8]) {
+int16_t readConversion(DS2480B &ds, onewireNode &node) {
   uint8_t consecutiveReadTries = 0;
   int16_t temp = UNSET_TEMPERATURE;
 
   do {
-    temp = _readConversion(ds, addr);
+    temp = _readConversion(ds, node.id);
+
+    if (temp == UNSET_TEMPERATURE) {
+      node.errors++;
+    }
     consecutiveReadTries++;
-  } while (temp == UNSET_TEMPERATURE && consecutiveReadTries <= MAX_CONSECUTIVE_READ_TRIES);
+  } while (temp == UNSET_TEMPERATURE && consecutiveReadTries <= MAX_CONSECUTIVE_RETRIES);
 
   return temp;
 }

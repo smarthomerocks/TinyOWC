@@ -21,6 +21,9 @@ extern "C" {
 #include "SPI.h"
 #include "TFT_eSPI.h"
 #include "onewire.h"
+#include "ds18x20.h"
+#include "ds2408.h"
+#include "ds2423.h"
 
 #ifndef TFT_DISPOFF
 #define TFT_DISPOFF 0x28
@@ -46,14 +49,14 @@ extern "C" {
 #define AUX_MQTTSETTING "/mqtt_settings"
 #define AUX_MQTTSAVE "/mqtt_save"
 
-#define SAMPLE_DELAY 10000 // milliseconds between reading sensors.
+#define SAMPLE_DELAY 10000          // milliseconds between reading sensors.
+#define FORCE_MQTT_PUSH 60000       // if still nothing has changed after this many milliseconds, we force a push to show that we are alive.
 #define TEMPERATURE_HYSTERESIS 0.5  // degrees celsius.
-#define WDT_TIMEOUT_SEC 60 // main loop watchdog, if stalled longer than XX seconds we will reboot.
+#define WDT_TIMEOUT_SEC 60          // main loop watchdog, if stalled longer than XX seconds we will reboot.
 
 static const char* TAG = "TinyOWC";
 
-//TODO: 
-//- Try make a module out of this project: https://github.com/espressif/arduino-esp32/blob/master/docs/esp-idf_component.md
+static const int64_t START_TIME = esp_timer_get_time();
 
 enum STATES {
   NO_DEVICES,
@@ -80,8 +83,12 @@ const char Base_Html[] PROGMEM = R"rawliteral(
       <h3>1-Wire devices:</h3>
       %ONE_WIRE_DEVICES%
       <p>
+        %UPTIME%
+      </p>
+      <p>
         <a href="/setup">Setup</a>
       </p>
+
     </body>
   </html>
 )rawliteral";
@@ -241,9 +248,13 @@ void scanOneWireNetwork() {
     clearScreen();
     tft.setCursor(0, 0);
 
-    for (auto i : scannedOneWireNodes) {
-      snprintf(buff, sizeof(buff), "Found %s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-      tft.println(buff);
+    if (scannedOneWireNodes.size() > 0) {
+      for (auto i : scannedOneWireNodes) {
+        snprintf(buff, sizeof(buff), "Found %s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+        tft.println(buff);
+      }
+    } else {
+      tft.println("No devices found. :-(");
     }
 
     delay(3000);
@@ -336,6 +347,13 @@ void secondButtonClick(Button2& btn) {
     oneWireNodes = scannedOneWireNodes;
     scannedOneWireNodes.clear();
     clearScreen();
+
+    // Set DS2408 to a known state (all relayes off).
+    for (auto &node : oneWireNodes) {
+      if (node.familyId == DS2408) {
+        setState(ds, node, B11111111);
+      }
+    }
   } else if (state == NO_DEVICES || state == OPERATIONAL) {
     state = START_SCANNING;
   }
@@ -391,13 +409,11 @@ void printOneWireNodes() {
          familyIdToNameTranslation(i.familyId).c_str(),
          i.actuatorPinState[0]);
       } else if (i.familyId == DS2423) {
-        snprintf(buff, sizeof(buff), "%s (%s)\nCounters: %d %d %d %d",
+        snprintf(buff, sizeof(buff), "%s (%s)\nCounters: %d %d",
          i.idStr.c_str(),
          familyIdToNameTranslation(i.familyId).c_str(),
          i.counters[0],
-         i.counters[1],
-         i.counters[2],
-         i.counters[3]);
+         i.counters[1]);
       } else {
         snprintf(buff, sizeof(buff), "%s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
       }
@@ -455,21 +471,6 @@ String saveParams(AutoConnectAux &aux, PageArgument &args)
   echo.value += "Command topic: " + mqtt_base_cmdtopic + "<br>";
 
   return String("");
-}
-
-void handleRoot() {
-  static const char AUX_mqtt_settings[] PROGMEM = R"rawliteral(
-    <!DOCTYPE HTML>
-    <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-      </head>
-      <body>
-        A Tiny-OWC
-      </body>
-    </html>
-  )rawliteral";
-  webserver.send(200, "text/html", AUX_mqtt_settings);
 }
 
 bool startedCapturePortal(IPAddress ip) {
@@ -572,22 +573,8 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
       pushStateToMQTT(*node);
     }    
-  } else if (command == "getStatus") {
-    /* Example
-    {
-      "command": "getStatus",
-      "id": "28.EEA89B19160262"
-    }
-    */
-    auto id = doc["id"].as<String>();
-    auto it = std::find_if (oneWireNodes.begin(), oneWireNodes.end(), [&id](const onewireNode& n) {
-      return n.idStr == id;
-    });
-    if (it != oneWireNodes.end()) {
-      auto node = it.base();
-      ESP_LOGD(TAG, "Pushing status of device '%s'.", id.c_str());
-      pushStateToMQTT(*node);
-    }
+  } else {
+    ESP_LOGI(TAG, "Unsupported MQTT command received: '%s'.", command);
   }
 }
 
@@ -619,12 +606,20 @@ void handle_indexHtml() {
   for (auto i : oneWireNodes) {
     if (isTemperatureSensor(i.familyId)) {
         if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.actuatorPin, i.status ? "open" : "close");
+          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s, errors: %d</li>", 
+          i.idStr.c_str(),
+          familyIdToNameTranslation(i.familyId).c_str(),
+          i.temperature,
+          i.lowLimit,
+          i.highLimit,
+          i.actuatorPin,
+          i.status ? "open" : "close",
+          i.errors);
         } else {
           snprintf(buff, sizeof(buff), "<li>%s (%s): Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
         }
     } else if (i.familyId == DS2408) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d %d %d %d %d %d %d</li>",
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d %d %d %d %d %d %d, errors: %d</li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.actuatorPinState[0],
@@ -634,26 +629,28 @@ void handle_indexHtml() {
         i.actuatorPinState[4],
         i.actuatorPinState[5],
         i.actuatorPinState[6],
-        i.actuatorPinState[7]);
+        i.actuatorPinState[7],
+        i.errors);
     } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d</li>",
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d, errors: %d</li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.actuatorPinState[0],
-        i.actuatorPinState[1]);
+        i.actuatorPinState[1],
+        i.errors);
     } else if (i.familyId == DS2405) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d</li>",
+      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d, errors: %d</li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
-        i.actuatorPinState[0]);
+        i.actuatorPinState[0],
+        i.errors);
     } else if (i.familyId == DS2423) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), counters: %d %d %d %d</li>",
+      snprintf(buff, sizeof(buff), "<li>%s (%s), counters: %d %d, errors: %d</li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.counters[0],
         i.counters[1],
-        i.counters[2],
-        i.counters[3]);
+        i.errors);
     } else {
       snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
     }
@@ -662,6 +659,20 @@ void handle_indexHtml() {
   }
   oneWireList += "</ul>";
   html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
+
+  auto seconds = (esp_timer_get_time() - START_TIME) / 1000000; // esp_timer_get_time in microseconds
+  uint16_t days, hours, minutes;
+
+  minutes = floor(seconds / 60);
+  seconds = seconds % 60;
+  hours = floor(minutes / 60);
+  minutes = minutes % 60;
+  days = floor(hours / 24);
+  hours = hours % 24;
+  
+  snprintf(buff, sizeof(buff), "Uptime: <strong>%d</strong> days, <strong>%d</strong> hours, <strong>%d</strong> min, <strong>%lli</strong> sec", days, hours, minutes, seconds);
+  html.replace("%UPTIME%" , String(buff));
+
   webserver.send(200, "text/html", html);
 }
 
@@ -671,7 +682,7 @@ void handle_ping() {
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, 0, 300);  // 300ms timeout to DS2480
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 500);  // 500ms timeout to DS2480
   Serial.println("Setup serial ports done.");
 
   tft.init();
@@ -702,10 +713,14 @@ void setup() {
   tft.println("Settings loaded.");
   Serial.println("Settings loaded.");
 
+  tft.println("DS2480B initializing...");
+  Serial.println("DS2480B initializing...");
+
   ds.begin();
+
   tft.println("DS2480B initialized.");
   Serial.println("DS2480B initialized.");
-
+  
   if (!SPIFFS.begin(true)) {
     tft.println("An Error has occurred while mounting SPIFFS.");
     Serial.println("An Error has occurred while mounting SPIFFS.");
@@ -828,7 +843,7 @@ void setup() {
   // Set DS2408 to a known state (all relayes off).
   for (auto &node : oneWireNodes) {
     if (node.familyId == DS2408) {
-      setState(ds, node.id, B11111111);
+      setState(ds, node, B11111111);
     }
   }
 
@@ -839,10 +854,11 @@ void pushStateToMQTT(onewireNode& node) {
   StaticJsonDocument<200> jsonNode;
   auto time = getEpocTime();
 
-  ESP_LOGD(TAG, "Pushing state to MQTT broker.");
+  ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
 
   jsonNode["id"] = node.idStr;
   jsonNode["time"] = time;
+  jsonNode["errors"] = node.errors;
 
   if (isTemperatureSensor(node.familyId)) {
     jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
@@ -873,7 +889,10 @@ void pushStateToMQTT(onewireNode& node) {
   String jsonString;
   serializeJson(jsonNode, jsonString);
   auto nodeTopic = mqtt_topic + "/" + node.idStr;
-  mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str());
+  if (mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str()) > 0) {
+    // if success...
+    node.millisWhenLastPush = millis();
+  }
 }
 
 void pushAllStateToMQTT() {
@@ -893,7 +912,8 @@ void actOnSensors() {
 
     for (auto &node : oneWireNodes) {
       if (isTemperatureSensor(node.familyId)) {
-        auto reading = readConversion(ds, node.id);
+        auto reading = readConversion(ds, node);
+        auto currentMillis = millis();
 
         if (reading != UNSET_TEMPERATURE) {
           node.failedReadingsInRow = 0;
@@ -912,14 +932,15 @@ void actOnSensors() {
               if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
                 auto actuatorNode = getOneWireNode(node.actuatorId);
                 if (actuatorNode != nullptr) {
-                  auto actuatorState = getState(ds, actuatorNode->id);
+                  auto actuatorState = getState(ds, *actuatorNode);
+                  // TODO: ^^^ don't get state, use state from node.actuatorPinState
                   if (actuatorState > -1) {
                     // set correct bit, IF we manage to get current state from DS2408.
                     auto oldActuatorState = actuatorState;
                     node.status = node.temperature < node.lowLimit;
                     
                     bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
-                    auto pinState = setState(ds, node.actuatorId, actuatorState);
+                    auto pinState = setState(ds, *actuatorNode, actuatorState);
                     for (auto i = 0; i < 8; i++) {
                       actuatorNode->actuatorPinState[i] = bitRead(pinState, i);
                     }
@@ -935,8 +956,12 @@ void actOnSensors() {
         } else {
           node.failedReadingsInRow++;
         }
+        // make a force push even if nothing has changed, if changes are too infrequent.
+        if (node.millisWhenLastPush + FORCE_MQTT_PUSH > currentMillis) {
+          pushStateToMQTT(node);
+        }
       } else if (node.familyId == DS2408) {
-        auto pinState = getState(ds, node.id);
+        auto pinState = getState(ds, node);
         if (pinState > -1) {
           for (auto i = 0; i < 8; i++) {
             node.actuatorPinState[i] = bitRead(pinState, i);
@@ -947,7 +972,16 @@ void actOnSensors() {
       } else if (node.familyId == DS2405) {
         // TODO
       } else if (node.familyId == DS2423) {
-        // TODO
+        auto a = getCounter(ds, node, 0);
+        auto b = getCounter(ds, node, 1);
+
+        if (a >= 0) {
+          node.counters[0] = a;
+        }
+
+        if (b >= 0) {
+          node.counters[1] = b;
+        }
       }
     }
 

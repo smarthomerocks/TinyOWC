@@ -14,23 +14,6 @@
 #define MATCH_ROM 0x55
 #define READ_POWER_SUPPLY 0xB4
 
-// DS18x20 Function commands
-#define CONVERT_T 0x44
-#define READ_SCRATCHPAD 0xBE
-#define WRITE_SCRATCHPAD 0x4E
-#define COPY_SCRATCHPAD 0x48
-#define RECALL 0xB8
-// DS18x20 Scratchpad layout
-#define TEMP_LSB        0
-#define TEMP_MSB        1
-#define HIGH_ALARM_TEMP 2
-#define LOW_ALARM_TEMP  3
-#define CONFIGURATION   4
-#define INTERNAL_BYTE   5
-#define COUNT_REMAIN    6
-#define COUNT_PER_C     7
-#define SCRATCHPAD_CRC  8
-
 // Supported 1-Wire devices
 // https://github.com/owfs/owfs-doc/wiki/1Wire-Device-List
 #define DS2405 0x5    // 1-channel switch
@@ -59,12 +42,13 @@ class DS2480B {
  public:
   DS2480B(HardwareSerial &port);
 
+  // Initialize DS2480B.
   void begin();
 
   // Perform a 1-Wire reset cycle. Returns 1 if a device responds
   // with a presence pulse.  Returns 0 if there is no device or the
   // bus is shorted or otherwise held low for more than 250uS
-  uint8_t reset(void);
+  uint8_t reset();
 
   void beginTransaction();
   void endTransaction();
@@ -76,7 +60,7 @@ class DS2480B {
   void select(const uint8_t rom[8]);
 
   // Issue a 1-Wire rom skip command, to address all on bus.
-  void skip(void);
+  void skip();
 
   // Write a byte.
   void write(uint8_t v);
@@ -86,7 +70,7 @@ class DS2480B {
   void write_bytes(const uint8_t *buf, uint16_t count);
 
   // Read a byte.
-  uint8_t read(void);
+  uint8_t read();
 
   void read_bytes(uint8_t *buf, uint16_t count);
 
@@ -94,10 +78,7 @@ class DS2480B {
   uint8_t write_bit(uint8_t v);
 
   // Read a bit.
-  uint8_t read_bit(void);
-
-  // Check if device it connected to bus
-  bool isConnected(const uint8_t rom[8]);
+  uint8_t read_bit();
 
   // Check if device is parasite powered (no VCC)
   bool isParasitePowered(const uint8_t rom[8]);

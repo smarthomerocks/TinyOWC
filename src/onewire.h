@@ -4,8 +4,12 @@
 #include <Arduino.h>
 #include <DS2480B.h>
 #include <vector>
-#include "ds18x20.h"
-#include "ds2408.h"
+
+// just a value indicating the variable has no value.
+#define UNSET_TEMPERATURE -1024
+
+// number of read tries before giving up
+#define MAX_CONSECUTIVE_RETRIES 3
 
 struct onewireNode {
   uint8_t id[8];     // e.g. 28,EE,A8,9B,19,16,2,62
@@ -17,10 +21,12 @@ struct onewireNode {
   float temperature = UNSET_TEMPERATURE;     // only applicable on temperature sensors.
   float lastTemperature = UNSET_TEMPERATURE; // only applicable on temperature sensors.
   uint16_t failedReadingsInRow = 0; // only applicable on temperature sensors.
+  uint32_t errors = 0;  // read/write errors for device (if many then check device and cables)
+  uint16_t millisWhenLastPush = 0; // keep track of how long since we reported status to MQTT-broker
   uint8_t actuatorId[8] = {}; // e.g. 29,29,E1,3,0,0,0,9C, only applicable on temperature sensors.
   int8_t actuatorPin = -1;    // only applicable on temperature sensors.
   bool actuatorPinState[8] = {false, false, false, false, false, false, false, false}; // only applicable on DS2405, DS2406 and DS2408 nodes.
-  uint32_t counters[4] = {0, 0, 0, 0};  // only applicable on DS2423 nodes.
+  uint32_t counters[2] = {0, 0};  // only applicable on DS2423 nodes. Only external counters (A & B) exposed.
 };
 
 std::vector<onewireNode> oneWireNodes;

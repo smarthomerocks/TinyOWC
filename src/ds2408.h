@@ -4,14 +4,15 @@
 #define DS2408_h
 
 #include <DS2480B.h>
+#include "onewire.h"
 
 #define PIO_LOGIC_STATE_REGISTER 0x88
 #define OUTPUT_LATCH_STATE_REGISTER 0x89
 #define RESUME 0xA5
 #define READ_PIO_REGISTERS 0xF0
 
-int16_t setState(DS2480B &ds, const uint8_t addr[8], uint8_t state) {
-  if (addr[0] != DS2408) {
+int16_t setState(DS2480B &ds, onewireNode &node, uint8_t state) {
+  if (node.id[0] != DS2408) {
     ESP_LOGW(TAG, "Device in not a DS2408!");
 
     return -1;
@@ -51,11 +52,14 @@ int16_t setState(DS2480B &ds, const uint8_t addr[8], uint8_t state) {
       val = ds.read();  // DS2408 samples PIO pin status
       ESP_LOGD(TAG, "DS2408 current state: %s.", String(val, BIN));
       result = val;
+    } else {
+      node.errors++;
     }
 
     ds.reset();
   } else {
     ESP_LOGW(TAG, "Reset DS2408 failed.");
+    node.errors++;
   }
 
   return result;
@@ -65,8 +69,8 @@ int16_t setState(DS2480B &ds, const uint8_t addr[8], uint8_t state) {
  * Get current state of pins.
  * @return lower half (8-bit) of integer repressent the eight inputs, -1 is returned if we failed to read device.
  */
-int16_t getState(DS2480B &ds, const uint8_t addr[8]) {
-  if (addr[0] != DS2408) {
+int16_t getState(DS2480B &ds, onewireNode &node) {
+  if (node.id[0] != DS2408) {
     ESP_LOGW(TAG, "Device in not a DS2408!");
 
     return -1;
@@ -88,11 +92,13 @@ int16_t getState(DS2480B &ds, const uint8_t addr[8]) {
 
     if (!ds.check_crc16(buf, 11, &buf[11])) {
       ESP_LOGI(TAG, "CRC(%s) failure in getState() for DS2408.", String(buf[11], HEX));
+      node.errors++;
     } else {
       result = buf[3];
     }
   } else {
     ESP_LOGW(TAG, "Reset DS2408 failed.");
+    node.errors++;
   }
 
   return result;

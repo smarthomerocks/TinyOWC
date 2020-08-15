@@ -2,11 +2,23 @@
 //
 // For DS2480B programming, see: https://pdfserv.maximintegrated.com/en/an/an192.pdf
 //
-DS2480B::DS2480B(HardwareSerial &port) : port(port) { reset_search(); }
+DS2480B::DS2480B(HardwareSerial &port) : port(port) { 
+  reset_search(); 
+}
 
 void DS2480B::begin() {
-  port.write(RESET);
+  // "Master Reset" the DS2480 (just like its been powercycled) by sending a NULL character at a data rate of 4800bps.
+  // Sending a couple of 0x00 at baud 4800 makes it above the "Master Reset Time"(tMR) of 104us and thus forcing a reset.
+  // We reset the DS2480 to get back to a known state after the ESP32 has been powercycled.
+  port.updateBaudRate(4800);
+  port.write(0x00);
+  port.write(0x00);
+  port.updateBaudRate(9600);
+
   isCmdMode = true;
+  delay(1);
+  // A 1-Wire Reset MUST be sent to calibrate the on-chip timing generator of the DS2480
+  port.write(RESET);
 }
 
 // Perform the onewire reset function.  We will wait up to 250uS for
@@ -15,16 +27,13 @@ void DS2480B::begin() {
 //
 // Returns 1 if a device asserted a presence pulse, 0 otherwise.
 //
-uint8_t DS2480B::reset(void) {
-  uint8_t r;
-
+uint8_t DS2480B::reset() {
   commandMode();
 
   port.write(RESET);
   // proper return is 0xCD otherwise something was wrong
-  while (!port.available())
-    ;
-  r = port.read();
+  while (!port.available());
+  uint8_t r = port.read();
   if (r == 0xCD) return 1;
   return 0;
 }
@@ -58,21 +67,22 @@ bool DS2480B::waitForReply() {
 // Write a bit - actually returns the bit read back in case you care.
 //
 uint8_t DS2480B::write_bit(uint8_t v) {
-  uint8_t val;
   commandMode();
   if (v == 1)
     port.write(0x91);  // write a single "on" bit to onewire
   else
     port.write(0x81);  // write a single "off" bit to onewire
   if (!waitForReply()) return 0;
-  val = port.read();
+
+  uint8_t val = port.read();
+
   return val & 1;
 }
 
 //
 // Read a bit - short hand for writing a 1 and seeing what we get back.
 //
-uint8_t DS2480B::read_bit(void) {
+uint8_t DS2480B::read_bit() {
   uint8_t r = write_bit(1);
   return r;
 }
@@ -108,13 +118,11 @@ void DS2480B::write_bytes(const uint8_t *buf, uint16_t count) {
 // Read a byte
 //
 uint8_t DS2480B::read() {
-  uint8_t r;
-
   dataMode();
 
   port.write(0xFF);
   if (!waitForReply()) return 0;
-  r = port.read();
+  uint8_t r = port.read();
   return r;
 }
 
@@ -126,12 +134,10 @@ void DS2480B::read_bytes(uint8_t *buf, uint16_t count) {
 // Do a ROM select
 //
 void DS2480B::select(const uint8_t rom[8]) {
-  uint8_t i;
-
   dataMode();
   write(MATCH_ROM);
 
-  for (i = 0; i < 8; i++) write(rom[i]);
+  for (uint8_t i = 0; i < 8; i++) write(rom[i]);
 }
 
 //
@@ -140,38 +146,6 @@ void DS2480B::select(const uint8_t rom[8]) {
 void DS2480B::skip() {
   dataMode();
   write(SKIP_ROM);
-}
-
-bool DS2480B::isConnected(const uint8_t rom[8]) {
-    if (reset()) {     // onewire initialization sequence, to be followed by other commands
-      select(rom);     // issues onewire "MATCH ROM" address which selects a SPECIFIC device
-      write(READ_SCRATCHPAD); // onewire "READ SCRATCHPAD" command, to access selected DS18B20's scratchpad
-    
-      uint8_t data[9];
-      bool allZeros = true;
-
-      for (auto i = 0; i < 9; i++) {           // read whole scratchpad register
-        data[i] = read();
-        // do more work at same time...
-        if (data[i] != 0) {
-          allZeros = false;
-        }
-      }
-
-      if (allZeros) {
-        return false;
-      }
-
-      auto crc = crc8(data, 8);
-      if (crc != data[8]) {
-        return false;
-      }
-
-      return true;
-
-    } else {
-      return false;
-    }
 }
 
 // returns true if parasite mode is used (Data + GND) by device

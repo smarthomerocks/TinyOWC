@@ -111,6 +111,7 @@ Example for a temperature sensor:
 
 - **id** - 1-Wire id of the device (always unique)
 - **time** - "Unix epoc"-time (milliseconds since 1970-01-01), this is used to see how old this reading is.
+- **errors** - Number of errors detected when communicating with 1-Wire device. Many errors could indicate problems with wirings or the device.
 - **temp** - temperature in degrees celsius, with two decimals.
 - **lowLimit** - low limit temperature, below this temperature and the sensor should activate a actuator to start heating the room.
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
@@ -134,7 +135,7 @@ e.g.
 home/tiny-owc/command/d891
 ```
 
-It currently supports two operations, "setSensor" to configure a sensor, and "getStatus" to force a device to push its current status. The payload is a UTF-8 formatted JSON-document.
+It currently supports one operation, "setSensor", to configure a sensor. The payload is a UTF-8 formatted JSON-document.
 
 **setSensor** example:
 ```
@@ -154,16 +155,6 @@ It currently supports two operations, "setSensor" to configure a sensor, and "ge
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
 - **actuatorId** - the actuator this sensor should bind to (should control).
 - **actuatorPin** - the pin of the actuator that should be set high/low whenever temperature is outside the range. **First pin is "0", second "1" and so forth**.
-
-**getStatus** example:
-```
-{
-  "command": "getStatus",
-  "id": "10.969D9801080083"
-}
-```
-- **command** - operation to execute
-- **id** - 1-Wire id of the device to push its current status.
 
 ## Hardware
 
