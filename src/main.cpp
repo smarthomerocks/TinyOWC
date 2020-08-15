@@ -100,6 +100,7 @@ STATES state = NO_DEVICES;
 Preferences preferences;
 
 char buff[512];
+int64_t conversionStarted = 0;
 
 Button2 firstButton = Button2(FIRST_BUTTON);
 Button2 secondButton = Button2(SECOND_BUTTON);
@@ -531,7 +532,7 @@ void onMqttUnsubscribe(uint16_t packetId) {
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   ESP_LOGI(TAG, "MQTT message received, payload: %s", payload);
 
-  StaticJsonDocument<200> doc;
+  StaticJsonDocument<250> doc;
 
   auto error = deserializeJson(doc, payload);
 
@@ -851,7 +852,7 @@ void setup() {
 }
 
 void pushStateToMQTT(onewireNode& node) {
-  StaticJsonDocument<200> jsonNode;
+  StaticJsonDocument<250> jsonNode;
   auto time = getEpocTime();
 
   ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
@@ -907,89 +908,95 @@ void actOnSensors() {
 
   if (oneWireNodes.size() > 0 && lastReadingTime + SAMPLE_DELAY < currentTime) {
 
-    startSimultaneousConversion(ds);
-    delay(1000);  // 1000ms just to be on the safe side, conversion must be finished.
+    if (!conversionStarted) {
+      startSimultaneousConversion(ds);
+      conversionStarted = esp_timer_get_time();
+    } else {
+      // check if 1 second has elapsed since conversion started, if true then we can read temperature from all temperature sensors.
+      if (conversionStarted + 1000000 < esp_timer_get_time()) {
+        conversionStarted = 0;
 
-    for (auto &node : oneWireNodes) {
-      if (isTemperatureSensor(node.familyId)) {
-        auto reading = readConversion(ds, node);
-        auto currentMillis = millis();
+        for (auto &node : oneWireNodes) {
+          if (isTemperatureSensor(node.familyId)) {
+            auto reading = readConversion(ds, node);
+            auto currentMillis = millis();
 
-        if (reading != UNSET_TEMPERATURE) {
-          node.failedReadingsInRow = 0;
-          auto temperature = rawToCelsius(reading);
+            if (reading != UNSET_TEMPERATURE) {
+              node.failedReadingsInRow = 0;
+              auto temperature = rawToCelsius(reading);
 
-          // filter some noise by only including changes larger than 0.5 degrees.
-          ESP_LOGD(TAG, "Temp reading: raw %d, temp %.2f, last %.2f", reading, temperature, node.lastTemperature);
+              // filter some noise by only including changes larger than 0.5 degrees.
+              ESP_LOGD(TAG, "Temp reading: raw %d, temp %.2f, last %.2f", reading, temperature, node.lastTemperature);
 
-          // Only record changes if temperature are greater than hysteresis, we don't want too frequent changes.
-          // 85 we don't need to measure this high temperatures, 85 is also the power-on temperature of the sensor.
-          if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85) {
-            node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
-            node.temperature = temperature;
-            // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
-            if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
-              if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
-                auto actuatorNode = getOneWireNode(node.actuatorId);
-                if (actuatorNode != nullptr) {
-                  auto actuatorState = getState(ds, *actuatorNode);
-                  // TODO: ^^^ don't get state, use state from node.actuatorPinState
-                  if (actuatorState > -1) {
-                    // set correct bit, IF we manage to get current state from DS2408.
-                    auto oldActuatorState = actuatorState;
-                    node.status = node.temperature < node.lowLimit;
-                    
-                    bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
-                    auto pinState = setState(ds, *actuatorNode, actuatorState);
-                    for (auto i = 0; i < 8; i++) {
-                      actuatorNode->actuatorPinState[i] = bitRead(pinState, i);
+              // Only record changes if temperature are greater than hysteresis, we don't want too frequent changes.
+              // 85 we don't need to measure this high temperatures, 85 is also the power-on temperature of the sensor.
+              if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85) {
+                node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
+                node.temperature = temperature;
+                // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
+                if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
+                  if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
+                    auto actuatorNode = getOneWireNode(node.actuatorId);
+                    if (actuatorNode != nullptr) {
+                      node.status = node.temperature < node.lowLimit;
+
+                      uint8_t actuatorState = 0;
+                      for (auto i = 0; i < 8; i++) {
+                        bitWrite(actuatorState, i, actuatorNode->actuatorPinState[i]);
+                      }
+                      auto oldActuatorState = actuatorState;
+                      
+                      bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
+                      setState(ds, *actuatorNode, actuatorState);
+
+                      actuatorNode->actuatorPinState[node.actuatorPin] = !node.status;
+
+                      ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
+                      pushStateToMQTT(*actuatorNode);
                     }
-                    ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
-                    pushStateToMQTT(*actuatorNode);
                   }
                 }
+                
+                pushStateToMQTT(node);           
               }
+            } else {
+              node.failedReadingsInRow++;
+            }
+            // make a force push even if nothing has changed, if changes are too infrequent.
+            if (node.millisWhenLastPush + FORCE_MQTT_PUSH > currentMillis) {
+              pushStateToMQTT(node);
+            }
+          } else if (node.familyId == DS2408) {
+            pushStateToMQTT(node);
+          } else if (node.familyId == DS2406 || node.familyId == DS2413) {
+            // TODO
+          } else if (node.familyId == DS2405) {
+            // TODO
+          } else if (node.familyId == DS2423) {
+            auto a = getCounter(ds, node, 0);
+            auto b = getCounter(ds, node, 1);
+
+            if (a >= 0) {
+              node.counters[0] = a;
+            }
+
+            if (b >= 0) {
+              node.counters[1] = b;
             }
             
-            pushStateToMQTT(node);           
-          }
-        } else {
-          node.failedReadingsInRow++;
-        }
-        // make a force push even if nothing has changed, if changes are too infrequent.
-        if (node.millisWhenLastPush + FORCE_MQTT_PUSH > currentMillis) {
-          pushStateToMQTT(node);
-        }
-      } else if (node.familyId == DS2408) {
-        auto pinState = getState(ds, node);
-        if (pinState > -1) {
-          for (auto i = 0; i < 8; i++) {
-            node.actuatorPinState[i] = bitRead(pinState, i);
+            if (a >= 0 || b >= 0) {
+              pushStateToMQTT(node);
+            }
           }
         }
-      } else if (node.familyId == DS2406 || node.familyId == DS2413) {
-        // TODO
-      } else if (node.familyId == DS2405) {
-        // TODO
-      } else if (node.familyId == DS2423) {
-        auto a = getCounter(ds, node, 0);
-        auto b = getCounter(ds, node, 1);
 
-        if (a >= 0) {
-          node.counters[0] = a;
-        }
+        numberOfSamplesSinceReboot++;
 
-        if (b >= 0) {
-          node.counters[1] = b;
-        }
+        printOneWireNodes();
+        
+        lastReadingTime = currentTime;
       }
     }
-
-    numberOfSamplesSinceReboot++;
-
-    printOneWireNodes();
-    
-    lastReadingTime = currentTime;
   }
 }
 
