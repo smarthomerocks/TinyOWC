@@ -49,13 +49,13 @@ int64_t getCounter(DS2480B &ds, onewireNode &node, uint8_t counterNr) {
     uint8_t crcHi = ~buf[44];
     boolean error = (crcLo != crcBytes[0]) || (crcHi != crcBytes[1]);
 ///----- TODO: REMOVE
-    for (int j = 0; j < 44; j++) {
+/*    for (int j = 0; j < 44; j++) {
       Serial.print(buf[j]);
       Serial.print(" ");
     }
     Serial.println();
     Serial.println();
-    ESP_LOGI(TAG, "count: %d", count);
+    ESP_LOGI(TAG, "count: %d", count);*/
 ///----- TODO: REMOVE ^^^
     if (error) {
       ESP_LOGI(TAG, "CRC(%s) failure in getCounter() for DS2423.", String(buf[11], HEX));

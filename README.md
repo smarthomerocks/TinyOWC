@@ -64,7 +64,10 @@ Example page:
     <body>
       <h3>Tiny-OWC</h3>
       <h3>1-Wire devices:</h3>
-      <ul><li>20.8C930D0000001C (DS2450)</li><li>10.7174B5010800EB (DS18S20), temp: 45.4, low-limit: 22, high-limit: 24, status: close</li><li>10.4548490108001C (DS18S20), temp: 17.4, low-limit: 22, high-limit: 24, status: close</li><li>10.93D84801080052 (DS18S20), temp: 17.7, low-limit: 22, high-limit: 24, status: close</li><li>28.EEA89B19160262 (DS18B20), temp: 23.4, low-limit: 22, high-limit: 24, status: close</li><li>1D.79DE0D000000AC (DS2423), counters: 23 455 0 0</li><li>1D.3FE00D0000004D (DS2423), counters: 223 3442 0 0</li></ul>
+      <ul><li>20.8C930D0000001C (DS2450), errors: 0</li><li>10.7174B5010800EB (DS18S20), temp: 45.4, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>10.4548490108001C (DS18S20), temp: 17.4, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>10.93D84801080052 (DS18S20), temp: 17.7, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>28.EEA89B19160262 (DS18B20), temp: 23.4, low-limit: 22, high-limit: 24, status: close, errors: 5</li><li>1D.79DE0D000000AC (DS2423), counters: 23 455, errors: 2</li><li>1D.3FE00D0000004D (DS2423), counters: 223 3442, errors: 0</li></ul>
+      <p>
+        Uptime: <strong>0</strong> days, <strong>20</strong> hours, <strong>53</strong> min, <strong>0</strong> sec
+      </p>
       <p>
         <a href="/setup">Setup</a>
       </p>
@@ -105,7 +108,8 @@ Example for a temperature sensor:
   "highLimit":23,
   "status":false,
   "actuatorId":"29.3E4D1300000068",
-  "actuatorPin":1
+  "actuatorPin":1,
+  "errors": 5
 }
 ```
 
