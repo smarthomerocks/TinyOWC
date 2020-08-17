@@ -590,10 +590,17 @@ void connectToMqtt() {
 void WiFiEvent(WiFiEvent_t event) {
     switch(event) {
       case SYSTEM_EVENT_STA_GOT_IP:
+        ESP_LOGI(TAG, "WiFi connected and got IP.");
+
+        configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
+        ESP_LOGI(TAG, "Time: %s", getTime("%d %b %Y, %H:%M:%S%z").c_str());
+
         connectToMqtt();
         break;
       case SYSTEM_EVENT_STA_DISCONNECTED:
         xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+        ESP_LOGI(TAG, "Lost WiFi connection, trying to reconnect...");
+        WiFi.begin();
         break;
       default:
         break;
@@ -803,6 +810,8 @@ void setup() {
   webserver.on("/ping", handle_ping);
   portal.onDetect(startedCapturePortal);
   
+  WiFi.setSleep(false); // https://github.com/espressif/arduino-esp32/issues/1484
+
   portalConnected = portal.begin();
 
   if (portalConnected) {
@@ -812,9 +821,6 @@ void setup() {
     if (MDNS.begin(appName.c_str())) {
       MDNS.addService("http", "tcp", 80);
     }
-
-    configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
-    ESP_LOGI(TAG, "Time: %s", getTime("%d %b %Y, %H:%M:%S%z").c_str());
   } else {
     tft.println("Portal started, IP:" + WiFi.localIP().toString() + "/setup");
     Serial.println("Capture portal started, IP:" + WiFi.localIP().toString() + "/setup");
@@ -1004,7 +1010,7 @@ void actOnSensors() {
 * Just display a spinning indicator on LCD to show that the application is running its main loop.
 */
 void printLoopProgress() {
-  if ((millis() % 500) == 0) {  
+  if ((millis() % 400) == 0) {  
     tft.setTextSize(2);
     tft.setTextColor(TFT_BLACK);
     tft.drawString(PROGRESS_INDICATOR[progressIndicator], tft.width() - tft.fontHeight(), tft.height() - tft.fontHeight()); // clear the old one.

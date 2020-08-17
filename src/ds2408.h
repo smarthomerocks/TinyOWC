@@ -25,6 +25,7 @@ int16_t setState(DS2480B &ds, onewireNode &node, uint8_t state) {
 
     ESP_LOGD(TAG, "Set DS2408 state to: %s.", String(state, BIN));
     // Configure RSTZ as STRB output.
+    //ds.select(node.id);
     ds.write(SKIP_ROM);   // TODO: Select should be used istead of SKIP_ROM, but I don't get it working.
     ds.write(0xCC);  // Issue Write Conditional Search Register command
     ds.write(0x8D);  // TA1, target address = 8Dh
