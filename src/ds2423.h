@@ -37,8 +37,6 @@ int64_t getCounter(DS2480B &ds, onewireNode &node, uint8_t counterNr) {
       buf[j] = ds.read();
     }
 
-    ds.reset();
-
     uint32_t count = (uint32_t)buf[38];
     for (int j = 37; j >= 35; j--) {
       count = (count << 8) + (uint32_t)buf[j];
@@ -58,10 +56,12 @@ int64_t getCounter(DS2480B &ds, onewireNode &node, uint8_t counterNr) {
     ESP_LOGI(TAG, "count: %d", count);*/
 ///----- TODO: REMOVE ^^^
     if (error) {
-      ESP_LOGI(TAG, "CRC(%s) failure in getCounter() for DS2423.", String(buf[11], HEX));
+      ESP_LOGW(TAG, "CRC(%s) failure in getCounter() for DS2423.", String(buf[11], HEX));
+      //TODO: add error handling and retry logic, see ds2408.h-code!
       node.errors++;
       return -1;
     } else {
+      node.success++;
       return count;
     }
   } else {

@@ -15,6 +15,7 @@ struct onewireNode {
   uint8_t id[8];     // e.g. 28,EE,A8,9B,19,16,2,62
   uint8_t familyId;  // e.g. 28
   String idStr;      // e.g. "28.EEA89B19160262"
+  String name;       // optional description, e.g. "bedroom", length is limited.
   bool status = false;  // open/close state signaled by temperature sensor to actuator, only applicable on temperature sensors.
   float lowLimit = UNSET_TEMPERATURE;        // only applicable on temperature sensors.
   float highLimit = UNSET_TEMPERATURE;       // only applicable on temperature sensors.
@@ -22,6 +23,7 @@ struct onewireNode {
   float lastTemperature = UNSET_TEMPERATURE; // only applicable on temperature sensors.
   uint16_t failedReadingsInRow = 0; // only applicable on temperature sensors.
   uint32_t errors = 0;  // read/write errors for device (if many then check device and cables)
+  uint32_t success = 0; // read/write success operations for device
   uint16_t millisWhenLastPush = 0; // keep track of how long since we reported status to MQTT-broker
   uint8_t actuatorId[8] = {}; // e.g. 29,29,E1,3,0,0,0,9C, only applicable on temperature sensors.
   int8_t actuatorPin = -1;    // only applicable on temperature sensors.

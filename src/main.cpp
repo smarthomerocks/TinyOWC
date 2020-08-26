@@ -80,11 +80,10 @@ const char Base_Html[] PROGMEM = R"rawliteral(
     </head>
     <body>
       <h1>Tiny-OWC</h1>
+      <p>Board id: %UNIQUE_ID%</p>
+      <p>%UPTIME%</p>
       <h3>1-Wire devices:</h3>
       %ONE_WIRE_DEVICES%
-      <p>
-        %UPTIME%
-      </p>
       <p>
         <a href="/setup">Setup</a>
       </p>
@@ -290,6 +289,7 @@ void loadSettings() {
       node.actuatorId[i] = actuatorIdArray[i];
     }
     
+    node.name = jsonNode["name"] | "";
     node.actuatorPin = jsonNode["actuatorPin"] | -1;
     node.lowLimit = jsonNode["lowLimit"] | UNSET_TEMPERATURE;
     node.highLimit = jsonNode["highLimit"] | UNSET_TEMPERATURE;
@@ -315,6 +315,7 @@ void saveSettings(std::vector<onewireNode> &nodes) {
     for (auto i : n.actuatorId) {
       actuatorIdArray.add(i);
     }
+    jsonNode["name"] = n.name || "";
     jsonNode["actuatorPin"] = n.actuatorPin;
     jsonNode["lowLimit"] = n.lowLimit;
     jsonNode["highLimit"] = n.highLimit;
@@ -349,10 +350,10 @@ void secondButtonClick(Button2& btn) {
     scannedOneWireNodes.clear();
     clearScreen();
 
-    // Set DS2408 to a known state (all relayes off).
+    // Set DS2408 to a known state (testmode=off,strobe out,all relayes off).
     for (auto &node : oneWireNodes) {
       if (node.familyId == DS2408) {
-        setState(ds, node, B11111111);
+        ds2408_reset(ds, node);
       }
     }
   } else if (state == NO_DEVICES || state == OPERATIONAL) {
@@ -382,7 +383,11 @@ void printOneWireNodes() {
     for (auto i : oneWireNodes) {
       if (isTemperatureSensor(i.familyId)) {
         if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "close");
+          if (i.lowLimit > UNSET_TEMPERATURE && i.highLimit > UNSET_TEMPERATURE && i.actuatorPin > -1) {
+            snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "closed");
+          } else {
+            snprintf(buff, sizeof(buff), "%s (%s): %.1f", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature);
+          }
         } else {
           snprintf(buff, sizeof(buff), "%s (%s): Not connected.", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
         }
@@ -549,6 +554,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     {
       "command": "setSensor",
       "id": "28.EEA89B19160262",
+      "name": "bedroom",
       "actuatorId": "29.29E1030000009C",
       "actuatorPin": 0,
       "lowLimit": 22,
@@ -556,6 +562,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     }
     */
     auto id = doc["id"].as<String>();
+    auto name = doc["name"].as<String>();
     auto actuatorId = doc["actuatorId"];
     auto actuatorPin = doc["actuatorPin"] | -1;
     auto lowLimit = doc["lowLimit"] | UNSET_TEMPERATURE;
@@ -570,6 +577,11 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       node->actuatorPin = actuatorPin;
       node->lowLimit = lowLimit;
       node->highLimit = highLimit;
+
+      name = name || "";
+      name.trim();
+      node->name = name.substring(0, 20);
+
       saveSettings(oneWireNodes);
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
       pushStateToMQTT(*node);
@@ -610,63 +622,7 @@ void WiFiEvent(WiFiEvent_t event) {
 void handle_indexHtml() {
   auto html = String(Base_Html);
 
-  String oneWireList = "<ul>";
-  for (auto i : oneWireNodes) {
-    if (isTemperatureSensor(i.familyId)) {
-        if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s, errors: %d</li>", 
-          i.idStr.c_str(),
-          familyIdToNameTranslation(i.familyId).c_str(),
-          i.temperature,
-          i.lowLimit,
-          i.highLimit,
-          i.actuatorPin,
-          i.status ? "open" : "close",
-          i.errors);
-        } else {
-          snprintf(buff, sizeof(buff), "<li>%s (%s): Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-        }
-    } else if (i.familyId == DS2408) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d %d %d %d %d %d %d, errors: %d</li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.actuatorPinState[0],
-        i.actuatorPinState[1],
-        i.actuatorPinState[2],
-        i.actuatorPinState[3],
-        i.actuatorPinState[4],
-        i.actuatorPinState[5],
-        i.actuatorPinState[6],
-        i.actuatorPinState[7],
-        i.errors);
-    } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d %d, errors: %d</li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.actuatorPinState[0],
-        i.actuatorPinState[1],
-        i.errors);
-    } else if (i.familyId == DS2405) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), pins: %d, errors: %d</li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.actuatorPinState[0],
-        i.errors);
-    } else if (i.familyId == DS2423) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), counters: %d %d, errors: %d</li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.counters[0],
-        i.counters[1],
-        i.errors);
-    } else {
-      snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-    }
-
-    oneWireList += String(buff);
-  }
-  oneWireList += "</ul>";
-  html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
+  html.replace("%UNIQUE_ID%" , uniqueId);
 
   auto seconds = (esp_timer_get_time() - START_TIME) / 1000000; // esp_timer_get_time in microseconds
   uint16_t days, hours, minutes;
@@ -680,6 +636,74 @@ void handle_indexHtml() {
   
   snprintf(buff, sizeof(buff), "Uptime: <strong>%d</strong> days, <strong>%d</strong> hours, <strong>%d</strong> min, <strong>%lli</strong> sec", days, hours, minutes, seconds);
   html.replace("%UPTIME%" , String(buff));
+
+  String oneWireList = "<ul>";
+  for (auto i : oneWireNodes) {
+    if (isTemperatureSensor(i.familyId)) {
+        if (i.failedReadingsInRow < 5) {
+          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s, errors: %d, success: %d</li>", 
+          i.idStr.c_str(),
+          familyIdToNameTranslation(i.familyId).c_str(),
+          i.name.c_str(),
+          i.temperature,
+          i.lowLimit,
+          i.highLimit,
+          i.actuatorPin,
+          i.status ? "open" : "closed",
+          i.errors,
+          i.success);
+        } else {
+          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\": Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
+        }
+    } else if (i.familyId == DS2408) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d %d %d %d %d %d %d %d, errors: %d, success: %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.name.c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1],
+        i.actuatorPinState[2],
+        i.actuatorPinState[3],
+        i.actuatorPinState[4],
+        i.actuatorPinState[5],
+        i.actuatorPinState[6],
+        i.actuatorPinState[7],
+        i.errors,
+        i.success);
+    } else if (i.familyId == DS2406 || i.familyId == DS2413) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d %d, errors: %d, success: %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.name.c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1],
+        i.errors,
+        i.success);
+    } else if (i.familyId == DS2405) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d, errors: %d, success: %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.name.c_str(),
+        i.actuatorPinState[0],
+        i.errors,
+        i.success);
+    } else if (i.familyId == DS2423) {
+      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", counters: %d %d, errors: %d, success: %d</li>",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.name.c_str(),
+        i.counters[0],
+        i.counters[1],
+        i.errors,
+        i.success);
+    } else {
+      snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+    }
+
+    oneWireList += String(buff);
+  }
+  oneWireList += "</ul>";
+  html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
 
   webserver.send(200, "text/html", html);
 }
@@ -847,10 +871,10 @@ void setup() {
 
   printOneWireNodes();
 
-  // Set DS2408 to a known state (all relayes off).
+  // Set DS2408 to a known state (testmode=off,strobe out,all relayes off).
   for (auto &node : oneWireNodes) {
     if (node.familyId == DS2408) {
-      setState(ds, node, B11111111);
+      ds2408_reset(ds, node);
     }
   }
 
@@ -858,14 +882,17 @@ void setup() {
 }
 
 void pushStateToMQTT(onewireNode& node) {
-  StaticJsonDocument<250> jsonNode;
+  // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
+  StaticJsonDocument<350> jsonNode;
   auto time = getEpocTime();
 
   ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
 
   jsonNode["id"] = node.idStr;
+  jsonNode["name"] = node.name;
   jsonNode["time"] = time;
   jsonNode["errors"] = node.errors;
+  jsonNode["success"] = node.success;
 
   if (isTemperatureSensor(node.familyId)) {
     jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
@@ -951,14 +978,16 @@ void actOnSensors() {
                         bitWrite(actuatorState, i, actuatorNode->actuatorPinState[i]);
                       }
                       auto oldActuatorState = actuatorState;
-                      
+
                       bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
-                      setState(ds, *actuatorNode, actuatorState);
+                      actuatorState = setState(ds, *actuatorNode, actuatorState);
+                      // if we managed to set state.
+                      if (actuatorState > -1) {
+                        actuatorNode->actuatorPinState[node.actuatorPin] = !node.status;  // Low means On (reversed logic)
 
-                      actuatorNode->actuatorPinState[node.actuatorPin] = !node.status;
-
-                      ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
-                      pushStateToMQTT(*actuatorNode);
+                        ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
+                        pushStateToMQTT(*actuatorNode);
+                      }
                     }
                   }
                 }
@@ -973,6 +1002,8 @@ void actOnSensors() {
               pushStateToMQTT(node);
             }
           } else if (node.familyId == DS2408) {
+                                  auto value = getState(ds, node);
+                      Serial.println(value);
             pushStateToMQTT(node);
           } else if (node.familyId == DS2406 || node.familyId == DS2413) {
             // TODO

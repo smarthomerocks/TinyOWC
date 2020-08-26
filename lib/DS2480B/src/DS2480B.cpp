@@ -1,6 +1,8 @@
 #include "DS2480B.h"
 //
-// For DS2480B programming, see: https://pdfserv.maximintegrated.com/en/an/an192.pdf
+// For DS2480B programming, see: 
+// https://pdfserv.maximintegrated.com/en/an/an192.pdf
+// https://datasheets.maximintegrated.com/en/ds/DS2480B.pdf
 //
 DS2480B::DS2480B(HardwareSerial &port) : port(port) { 
   reset_search(); 
@@ -16,7 +18,7 @@ void DS2480B::begin() {
   port.updateBaudRate(9600);
 
   isCmdMode = true;
-  delay(1);
+  delay(2);
   // A 1-Wire Reset MUST be sent to calibrate the on-chip timing generator of the DS2480
   port.write(RESET);
 }
@@ -94,7 +96,7 @@ void DS2480B::write(uint8_t v) {
 
   port.write(v);
   // need to double up transmission if the sent byte was one of the command
-  // bytes
+  // bytes. See "Check Mode" in manual.
   if (v == DATA_MODE || v == COMMAND_MODE || v == PULSE_TERMINATE)
     port.write(v);
   if (!waitForReply()) return;

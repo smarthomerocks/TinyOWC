@@ -1,5 +1,5 @@
 - DS18B20 sensors report a temperature that is too high (I think), DS18S20 works tough. (resolution related error?)
-- Fix SKIP_ROM usage in DS2408.h, since there are multiple devices on the bus this will render data collisions and crasches!
+- Add retry logic for reading counters in DS2423
 - Support more than _one_ DS2408 on a buss
 - Text too tiny on LCD, switch to larger font and only print a couple of sensors at a time, use some kind of carousel function to display many devices.
 - Security support (MQTT and HTML)

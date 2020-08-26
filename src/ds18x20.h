@@ -84,27 +84,30 @@ bool isConnected(DS2480B &ds, const uint8_t rom[8]) {
 // this function sets the resolution for ALL DS18B20s on an instantiated OneWire
 void setResolution(DS2480B &ds, uint8_t resolution)  
 {
-  ds.reset();            // onewire intialization sequence, to be followed by other commands
-  ds.write(SKIP_ROM);    // onewire "SKIP ROM" command, selects ALL DS18B20s on bus
-  ds.write(WRITE_SCRATCHPAD); // onewire "WRITE SCRATCHPAD" command (requires write to 3 registers: 2 hi-lo regs, 1 config reg)
-  ds.write(DS18B20_TEMP_HI_REG); // 1) write known value to temp hi register 
-  ds.write(DS18B20_TEMP_LO_REG); // 2) write known value to temp lo register
-  ds.write(resolution);  // 3) write the selected resolution to configuration registers of all DS18B20s on the bus
+  if (ds.reset()) { // onewire intialization sequence, to be followed by other commands
+    ds.write(SKIP_ROM);    // onewire "SKIP ROM" command, selects ALL DS18B20s on bus
+    ds.write(WRITE_SCRATCHPAD); // onewire "WRITE SCRATCHPAD" command (requires write to 3 registers: 2 hi-lo regs, 1 config reg)
+    ds.write(DS18B20_TEMP_HI_REG); // 1) write known value to temp hi register 
+    ds.write(DS18B20_TEMP_LO_REG); // 2) write known value to temp lo register
+    ds.write(resolution);  // 3) write the selected resolution to configuration registers of all DS18B20s on the bus
+  }
 }
 
 // this function intitalizes simultaneous temperature conversions for ALL DS18B20s on an instantiated OneWire
 void startSimultaneousConversion(DS2480B &ds)    
 {
-  ds.reset();          // onewire initialization sequence, to be followed by other commands
-  ds.write(SKIP_ROM);  // onewire "SKIP ROM" command, addresses ALL DS18B20s on bus
-  ds.write(CONVERT_T); // onewire wire "CONVERT T" command, starts temperature conversion on ALL DS18B20s
+  if (ds.reset()) {      // onewire initialization sequence, to be followed by other commands
+    ds.write(SKIP_ROM);  // onewire "SKIP ROM" command, addresses ALL DS18B20s on bus
+    ds.write(CONVERT_T); // onewire wire "CONVERT T" command, starts temperature conversion on ALL DS18B20s
+  }
 }
 
 void startConversion(DS2480B &ds, const uint8_t addr[8])    
 {
-  ds.reset();          // onewire initialization sequence, to be followed by other commands
-  ds.select(addr);     // issues onewire "MATCH ROM" address which selects a SPECIFIC (only one) DS18B20 device
-  ds.write(CONVERT_T); // onewire wire "CONVERT T" command, starts temperature conversion on ALL DS18B20s
+  if (ds.reset()) {      // onewire initialization sequence, to be followed by other commands
+    ds.select(addr);     // issues onewire "MATCH ROM" address which selects a SPECIFIC (only one) DS18B20 device
+    ds.write(CONVERT_T); // onewire wire "CONVERT T" command, starts temperature conversion on ALL DS18B20s
+  }
 }
 
 // this function returns the RAW temperature conversion result of a SINGLE selected DS18B20 device (via it's address)
@@ -150,7 +153,7 @@ int16_t _readConversion(DS2480B &ds, const uint8_t addr[8]) {
       if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
       else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
       else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
-      //// default is 12 bit resolution, 750 ms conversion time
+      // default is 12 bit resolution, 750 ms conversion time
     }
 
     return raw;
@@ -171,6 +174,8 @@ int16_t readConversion(DS2480B &ds, onewireNode &node) {
 
     if (temp == UNSET_TEMPERATURE) {
       node.errors++;
+    } else {
+      node.success++;
     }
     consecutiveReadTries++;
   } while (temp == UNSET_TEMPERATURE && consecutiveReadTries <= MAX_CONSECUTIVE_RETRIES);
