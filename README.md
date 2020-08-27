@@ -63,11 +63,10 @@ Example page:
   <html lang="en">
     <body>
       <h3>Tiny-OWC</h3>
+      <p>Board id: 9897</p>
+      <p>Uptime: <strong>0</strong> days, <strong>20</strong> hours, <strong>40</strong> min, <strong>12</strong> sec</p>
       <h3>1-Wire devices:</h3>
-      <ul><li>20.8C930D0000001C (DS2450), errors: 0</li><li>10.7174B5010800EB (DS18S20), temp: 45.4, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>10.4548490108001C (DS18S20), temp: 17.4, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>10.93D84801080052 (DS18S20), temp: 17.7, low-limit: 22, high-limit: 24, status: close, errors: 0</li><li>28.EEA89B19160262 (DS18B20), temp: 23.4, low-limit: 22, high-limit: 24, status: close, errors: 5</li><li>1D.79DE0D000000AC (DS2423), counters: 23 455, errors: 2</li><li>1D.3FE00D0000004D (DS2423), counters: 223 3442, errors: 0</li></ul>
-      <p>
-        Uptime: <strong>0</strong> days, <strong>20</strong> hours, <strong>53</strong> min, <strong>0</strong> sec
-      </p>
+      <ul><li>20.8C930D0000001C (DS2450), errors: 0, success: 6722</li><li>10.7174B5010800EB (DS18S20), temp: 45.4, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6700</li><li>10.4548490108001C (DS18S20), temp: 17.4, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6722</li><li>10.93D84801080052 (DS18S20), temp: 17.7, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6722</li><li>28.EEA89B19160262 (DS18B20), temp: 23.4, low-limit: 22, high-limit: 24, status: close, errors: 5, success: 6715</li><li>1D.79DE0D000000AC (DS2423), counters: 23 455, errors: 2, success: 6722</li><li>1D.3FE00D0000004D (DS2423), counters: 223 3442, errors: 0, success: 6722</li></ul>
       <p>
         <a href="/setup">Setup</a>
       </p>
@@ -101,21 +100,25 @@ Example for a temperature sensor:
 
 ```
 {
-  "id":"10.969D9801080083",
-  "time":1596723249641,
-  "temp":23.93,
-  "lowLimit":22,
-  "highLimit":23,
-  "status":false,
-  "actuatorId":"29.3E4D1300000068",
-  "actuatorPin":1,
-  "errors": 5
+   "id":"28.EE8FD119160230",
+   "name":"bedroom",
+   "time":1598560516535,
+   "errors":0,
+   "success":421,
+   "temp":23.68,
+   "lowLimit":22,
+   "highLimit":24,
+   "status":false,
+   "actuatorId":"29.3E4D1300000068",
+   "actuatorPin":1
 }
 ```
 
 - **id** - 1-Wire id of the device (always unique)
+- **name** - optional field for naming a device. Maximum 20 characters, whitespace allowed.
 - **time** - "Unix epoc"-time (milliseconds since 1970-01-01), this is used to see how old this reading is.
 - **errors** - Number of errors detected when communicating with 1-Wire device. Many errors could indicate problems with wirings or the device.
+- **success** - Number of successful operations performed when communicating with 1-Wire device.
 - **temp** - temperature in degrees celsius, with two decimals.
 - **lowLimit** - low limit temperature, below this temperature and the sensor should activate a actuator to start heating the room.
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
@@ -146,6 +149,7 @@ It currently supports one operation, "setSensor", to configure a sensor. The pay
 {
   "command": "setSensor",
   "id": "10.969D9801080083",
+  "name": "garage",
   "actuatorId": "29.3E4D1300000068",
   "actuatorPin": 1,
   "lowLimit": 22,
@@ -155,6 +159,7 @@ It currently supports one operation, "setSensor", to configure a sensor. The pay
 
 - **command** - operation to execute
 - **id** - 1-Wire id of the device to configure
+- **name** - optional field for naming a device. Maximum 20 characters, whitespace allowed. 
 - **lowLimit** - low limit temperature, below this temperature and the sensor should activate a actuator to start heating the room.
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
 - **actuatorId** - the actuator this sensor should bind to (should control).
