@@ -49,7 +49,7 @@ extern "C" {
 #define AUX_MQTTSETTING "/mqtt_settings"
 #define AUX_MQTTSAVE "/mqtt_save"
 
-#define SAMPLE_DELAY 10000          // milliseconds between reading sensors.
+#define SAMPLE_DELAY 20000          // milliseconds between reading sensors.
 #define FORCE_MQTT_PUSH 60000       // if still nothing has changed after this many milliseconds, we force a push to show that we are alive.
 #define TEMPERATURE_HYSTERESIS 0.5  // degrees celsius.
 #define WDT_TIMEOUT_SEC 60          // main loop watchdog, if stalled longer than XX seconds we will reboot.
