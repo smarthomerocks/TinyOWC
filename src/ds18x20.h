@@ -118,6 +118,17 @@ int16_t _readConversion(DS2480B &ds, const uint8_t addr[8]) {
     
     byte data[9];
 
+    // https://www.maximintegrated.com/en/design/technical-documents/app-notes/4/4377.html
+ 	  //        DS18S20               DS18B20
+    //byte 0	Temperature LSB (AAh)	Temperature LSB (50h)
+    //byte 1	Temperature MSB (00h)	Temperature MSB (05h)
+    //byte 2	TH Register	          TH Register
+    //byte 3	TL Register	          TL Register
+    //byte 4	Reserved (FFh)        Configuration Register
+    //byte 5	Reserved (FFh)        Reserved (FFh)
+    //byte 6	Count Remain (0Ch)	  Reserved
+    //byte 7	Count Per °C (10h)	  Reserved (10h)
+    //byte 8	CRC                   CRC
     for (auto i = 0; i < 9; i++) {           // we need 9 bytes
       data[i] = ds.read();
     //  Serial.print(data[i], HEX);

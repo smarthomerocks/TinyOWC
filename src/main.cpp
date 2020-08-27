@@ -289,7 +289,7 @@ void loadSettings() {
       node.actuatorId[i] = actuatorIdArray[i];
     }
     
-    node.name = jsonNode["name"] | "";
+    node.name = jsonNode["name"].as<String>();
     node.actuatorPin = jsonNode["actuatorPin"] | -1;
     node.lowLimit = jsonNode["lowLimit"] | UNSET_TEMPERATURE;
     node.highLimit = jsonNode["highLimit"] | UNSET_TEMPERATURE;
@@ -315,7 +315,11 @@ void saveSettings(std::vector<onewireNode> &nodes) {
     for (auto i : n.actuatorId) {
       actuatorIdArray.add(i);
     }
-    jsonNode["name"] = n.name || "";
+    if (n.name != NULL && n.name.length() > 0) {
+      jsonNode["name"] = n.name;
+    } else {
+      jsonNode["name"] = "";
+    }
     jsonNode["actuatorPin"] = n.actuatorPin;
     jsonNode["lowLimit"] = n.lowLimit;
     jsonNode["highLimit"] = n.highLimit;
@@ -578,9 +582,12 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       node->lowLimit = lowLimit;
       node->highLimit = highLimit;
 
-      name = name || "";
-      name.trim();
-      node->name = name.substring(0, 20);
+      if (name != NULL && name.length() > 0) {
+        name.trim();
+        node->name = name.substring(0, 20);
+      } else {
+        node->name = "";
+      }
 
       saveSettings(oneWireNodes);
       ESP_LOGI(TAG, "Settings for sensor '%s' updated.", id.c_str());
@@ -1002,8 +1009,7 @@ void actOnSensors() {
               pushStateToMQTT(node);
             }
           } else if (node.familyId == DS2408) {
-                                  auto value = getState(ds, node);
-                      Serial.println(value);
+
             pushStateToMQTT(node);
           } else if (node.familyId == DS2406 || node.familyId == DS2413) {
             // TODO
