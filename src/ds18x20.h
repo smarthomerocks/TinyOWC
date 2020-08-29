@@ -81,6 +81,11 @@ bool isConnected(DS2480B &ds, const uint8_t rom[8]) {
   }
 }
 
+// whether the actuator the temperature sensor is connected to should be active or not (open/closed)
+bool shouldActuatorBeActive(onewireNode &node) {
+  return node.temperature < node.lowLimit;;
+}
+
 // this function sets the resolution for ALL DS18B20s on an instantiated OneWire
 void setResolution(DS2480B &ds, uint8_t resolution)  
 {

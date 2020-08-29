@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <vector>
 #define ARDUINOJSON_USE_LONG_LONG 1 // https://arduinojson.org/v6/api/config/use_long_long/, to use 64-bit long in getEpocTime().
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
@@ -49,7 +50,7 @@ extern "C" {
 #define AUX_MQTTSETTING "/mqtt_settings"
 #define AUX_MQTTSAVE "/mqtt_save"
 
-#define SAMPLE_DELAY 20000          // milliseconds between reading sensors.
+#define SAMPLE_DELAY 15000          // milliseconds between reading sensors.
 #define FORCE_MQTT_PUSH 60000       // if still nothing has changed after this many milliseconds, we force a push to show that we are alive.
 #define TEMPERATURE_HYSTERESIS 0.5  // degrees celsius.
 #define WDT_TIMEOUT_SEC 60          // main loop watchdog, if stalled longer than XX seconds we will reboot.
@@ -127,8 +128,13 @@ TimerHandle_t mqttReconnectTimer;
 String uniqueId = String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
 String appName = "Tiny-OWC_" + uniqueId;
 
+const uint8_t NODES_PER_PAGE = 2; // 1-Wire nodes to show on LCD-display at the same time
+uint8_t shownNodePage = 1;
+
 extern void pushStateToMQTT(onewireNode& node);
 extern void pushAllStateToMQTT();
+
+// ----------------------------------------------------------------------------
 
 void clearScreen() {
   tft.fillScreen(TFT_BLACK);
@@ -207,11 +213,11 @@ void scanOneWireNetwork() {
     isScanning = true;
     byte addr[8];
 
-    ESP_LOGI(TAG, "Start scanning 1-wire network...");
+    ESP_LOGI(TAG, "Start scanning 1-Wire network...");
 
     clearScreen();
     printState();
-    tft.drawString("Scanning 1-wire...", tft.width() / 2, tft.height() / 2);
+    tft.drawString("Scanning 1-Wire...", tft.width() / 2, tft.height() / 2);
     tft.setCursor(0, 0);
 
     while (ds.search(addr)) {
@@ -224,7 +230,7 @@ void scanOneWireNetwork() {
       tft.print(".");
 
       if (DS2480B::crc8(addr, 7) != addr[7]) {
-        ESP_LOGW(TAG, "CRC is not valid on detected 1-wire device, ignoring.");
+        ESP_LOGW(TAG, "CRC is not valid on detected 1-Wire device, ignoring.");
       } else {
         onewireNode node;
         populateNode(node, addr);
@@ -232,7 +238,7 @@ void scanOneWireNetwork() {
         if (familyIdToNameTranslation(node.familyId).length() > 0) {
           scannedOneWireNodes.push_back(node);
         } else {
-          ESP_LOGI(TAG, "Unsupported 1-wire device(family=%x) found, ignoring.", node.familyId);
+          ESP_LOGI(TAG, "Unsupported 1-Wire device(family=%x) found, ignoring.", node.familyId);
         }
       }
 
@@ -352,6 +358,7 @@ void secondButtonClick(Button2& btn) {
     saveSettings(scannedOneWireNodes);
     oneWireNodes = scannedOneWireNodes;
     scannedOneWireNodes.clear();
+    shownNodePage = 1;
     clearScreen();
 
     // Set DS2408 to a known state (testmode=off,strobe out,all relayes off).
@@ -379,63 +386,107 @@ void printOneWireNodes() {
   tft.setCursor(0, 0);
   tft.setTextSize(1);
 
-  tft.println("1-Wire devices:");
+  uint8_t availableNodePages = oneWireNodes.size() / NODES_PER_PAGE + (oneWireNodes.size() % NODES_PER_PAGE != 0);
+  snprintf(buff, sizeof(buff), "1-Wire devices (%d/%d):", shownNodePage, availableNodePages); 
+  tft.println(buff);
   tft.println();
-  Serial.println("printOneWireNodes():");
+  Serial.printf("printOneWireNodes (%d/%d):\n", shownNodePage, availableNodePages);
 
-  if (oneWireNodes.size() > 0) {
-    for (auto i : oneWireNodes) {
-      if (isTemperatureSensor(i.familyId)) {
-        if (i.failedReadingsInRow < 5) {
-          if (i.lowLimit > UNSET_TEMPERATURE && i.highLimit > UNSET_TEMPERATURE && i.actuatorPin > -1) {
-            snprintf(buff, sizeof(buff), "%s (%s): %.1f\nLimits: %.1f - %.1f. Status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, i.status ? "open" : "closed");
-          } else {
-            snprintf(buff, sizeof(buff), "%s (%s): %.1f", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature);
-          }
-        } else {
-          snprintf(buff, sizeof(buff), "%s (%s): Not connected.", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-        }
-      } else if (i.familyId == DS2408) {
-        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d %d %d %d %d %d %d",
-         i.idStr.c_str(),
-         familyIdToNameTranslation(i.familyId).c_str(),
-         i.actuatorPinState[0],
-         i.actuatorPinState[1],
-         i.actuatorPinState[2],
-         i.actuatorPinState[3],
-         i.actuatorPinState[4],
-         i.actuatorPinState[5],
-         i.actuatorPinState[6],
-         i.actuatorPinState[7]);
-      } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d %d",
-         i.idStr.c_str(),
-         familyIdToNameTranslation(i.familyId).c_str(),
-         i.actuatorPinState[0],
-         i.actuatorPinState[1]);
-      } else if (i.familyId == DS2405) {
-        snprintf(buff, sizeof(buff), "%s (%s)\nPins: %d",
-         i.idStr.c_str(),
-         familyIdToNameTranslation(i.familyId).c_str(),
-         i.actuatorPinState[0]);
-      } else if (i.familyId == DS2423) {
-        snprintf(buff, sizeof(buff), "%s (%s)\nCounters: %d %d",
-         i.idStr.c_str(),
-         familyIdToNameTranslation(i.familyId).c_str(),
-         i.counters[0],
-         i.counters[1]);
-      } else {
-        snprintf(buff, sizeof(buff), "%s (%s)", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-      }
-      tft.println(buff);
-      Serial.println(buff);
-    }
-
-    tft.drawString("Samples since power-on: " + String(numberOfSamplesSinceReboot), 0, tft.height() - tft.fontHeight() * 2);
-    Serial.println("Samples since power-on: " + String(numberOfSamplesSinceReboot));
-  } else {
+  if (oneWireNodes.size() == 0) {
     tft.println("none, please scan.");
+    return;
   }
+
+  uint8_t offset = (shownNodePage - 1) * NODES_PER_PAGE;
+  std::vector<onewireNode> pagedList(oneWireNodes.begin() + offset, oneWireNodes.begin() + offset + NODES_PER_PAGE);
+
+  for (auto i : pagedList) {
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+
+    if (isTemperatureSensor(i.familyId)) {
+      if (i.failedReadingsInRow < 5) {
+        if (i.lowLimit > UNSET_TEMPERATURE && i.highLimit > UNSET_TEMPERATURE && i.actuatorPin > -1) {
+          snprintf(buff, sizeof(buff), "%s: ", familyIdToNameTranslation(i.familyId).c_str());
+          tft.print(buff);
+          if (i.temperature < i.lowLimit) {
+            tft.setTextColor(TFT_BLUE);
+          } else if (i.temperature > i.highLimit) {
+            tft.setTextColor(TFT_RED);
+          } else {
+            tft.setTextColor(TFT_GREEN);
+          }
+          snprintf(buff, sizeof(buff), "%.1f", i.temperature);
+          tft.println(buff);
+          tft.setTextColor(TFT_WHITE);
+          snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+          tft.println(buff);
+        } else {
+          snprintf(buff, sizeof(buff), "%s: %.1f",familyIdToNameTranslation(i.familyId).c_str(), i.temperature);
+          tft.println(buff);
+          snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+          tft.println(buff);
+        }
+      } else {
+        snprintf(buff, sizeof(buff), "%s: not avail", familyIdToNameTranslation(i.familyId).c_str());
+        tft.println(buff);
+        snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+        tft.println(buff);
+      }
+    } else if (i.familyId == DS2408) {
+      snprintf(buff, sizeof(buff), "%s, out:%d%d%d%d%d%d%d%d",
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1],
+        i.actuatorPinState[2],
+        i.actuatorPinState[3],
+        i.actuatorPinState[4],
+        i.actuatorPinState[5],
+        i.actuatorPinState[6],
+        i.actuatorPinState[7]);
+      tft.println(buff);
+      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      tft.println(buff);  
+    } else if (i.familyId == DS2406 || i.familyId == DS2413) {
+      snprintf(buff, sizeof(buff), "%s,out: %d %d",
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1]);
+      tft.println(buff);
+      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      tft.println(buff);
+    } else if (i.familyId == DS2405) {
+      snprintf(buff, sizeof(buff), "%s,out: %d",
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0]);
+      tft.println(buff);
+      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+    } else if (i.familyId == DS2423) {
+      snprintf(buff, sizeof(buff), "%s,count:%d %d",
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.counters[0],
+        i.counters[1]);
+      tft.println(buff);
+      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      tft.println(buff);
+    } else {
+      snprintf(buff, sizeof(buff), "%s",
+        familyIdToNameTranslation(i.familyId).c_str());
+      tft.println(buff);
+      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+    }
+    
+    tft.println();
+  }
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(1);
+
+  tft.drawString("Samples since power-on: " + String(numberOfSamplesSinceReboot), 0, tft.height() - tft.fontHeight() * 2);
+  Serial.println("Samples since power-on: " + String(numberOfSamplesSinceReboot));
+
+  shownNodePage++;
+  if (shownNodePage > availableNodePages) shownNodePage = 1;
 }
 
 String loadParams(AutoConnectAux &aux, PageArgument &args) {
@@ -509,6 +560,16 @@ void watchdogSetup() {
     default:
       Serial.printf("Watchdog activation error: %d\n", err);
       break;
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+void connectToMqtt() {
+  ESP_LOGI(TAG, "Connecting to MQTT...");
+
+  if (WiFi.isConnected()) {
+    mqttClient.connect();
   }
 }
 
@@ -598,13 +659,62 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
   }
 }
 
-void connectToMqtt() {
-  ESP_LOGI(TAG, "Connecting to MQTT...");
 
-  if (WiFi.isConnected()) {
-    mqttClient.connect();
+void pushStateToMQTT(onewireNode& node) {
+  // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
+  StaticJsonDocument<350> jsonNode;
+  auto time = getEpocTime();
+
+  ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
+
+  jsonNode["id"] = node.idStr;
+  jsonNode["name"] = node.name;
+  jsonNode["time"] = time;
+  jsonNode["errors"] = node.errors;
+  jsonNode["success"] = node.success;
+
+  if (isTemperatureSensor(node.familyId)) {
+    jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
+    jsonNode["lowLimit"] = node.lowLimit;
+    jsonNode["highLimit"] = node.highLimit;
+    jsonNode["status"] = shouldActuatorBeActive(node);
+    jsonNode["actuatorId"] = idToString(node.actuatorId);
+    jsonNode["actuatorPin"] = node.actuatorPin;
+  } else if (node.familyId == DS2408) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    for (auto i : node.actuatorPinState) {
+      pinStateArray.add(i);
+    }
+  } else if (node.familyId == DS2406 || node.familyId == DS2413) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    pinStateArray.add(pinStateArray[0]);
+    pinStateArray.add(pinStateArray[1]);
+  } else if (node.familyId == DS2405) {
+    auto pinStateArray = jsonNode.createNestedArray("pinState");
+    pinStateArray.add(pinStateArray[0]);
+  } else if (node.familyId == DS2423) {
+    auto countersArray = jsonNode.createNestedArray("counters");
+    for (auto i : node.counters) {
+      countersArray.add(i);
+    }
+  }
+
+  String jsonString;
+  serializeJson(jsonNode, jsonString);
+  auto nodeTopic = mqtt_topic + "/" + node.idStr;
+  if (mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str()) > 0) {
+    // if success...
+    node.millisWhenLastPush = millis();
   }
 }
+
+void pushAllStateToMQTT() {
+  for (auto &node : oneWireNodes) {
+    pushStateToMQTT(node);
+  }
+}
+
+// ----------------------------------------------------------------------------
 
 void WiFiEvent(WiFiEvent_t event) {
     switch(event) {
@@ -656,7 +766,7 @@ void handle_indexHtml() {
           i.lowLimit,
           i.highLimit,
           i.actuatorPin,
-          i.status ? "open" : "closed",
+          shouldActuatorBeActive(i) ? "open" : "closed",
           i.errors,
           i.success);
         } else {
@@ -719,6 +829,8 @@ void handle_ping() {
   webserver.send(200, "text/plain", "pong");
 }
 
+// ----------------------------------------------------------------------------
+
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 500);  // 500ms timeout to DS2480
@@ -726,6 +838,7 @@ void setup() {
 
   tft.init();
   tft.setRotation(3);
+  tft.setTextWrap(false, false);
   clearScreen();
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE);
@@ -888,60 +1001,6 @@ void setup() {
   Serial.println("Setup() done.");
 }
 
-void pushStateToMQTT(onewireNode& node) {
-  // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
-  StaticJsonDocument<350> jsonNode;
-  auto time = getEpocTime();
-
-  ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
-
-  jsonNode["id"] = node.idStr;
-  jsonNode["name"] = node.name;
-  jsonNode["time"] = time;
-  jsonNode["errors"] = node.errors;
-  jsonNode["success"] = node.success;
-
-  if (isTemperatureSensor(node.familyId)) {
-    jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
-    jsonNode["lowLimit"] = node.lowLimit;
-    jsonNode["highLimit"] = node.highLimit;
-    jsonNode["status"] = node.status;
-    jsonNode["actuatorId"] = idToString(node.actuatorId);
-    jsonNode["actuatorPin"] = node.actuatorPin;
-  } else if (node.familyId == DS2408) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    for (auto i : node.actuatorPinState) {
-      pinStateArray.add(i);
-    }
-  } else if (node.familyId == DS2406 || node.familyId == DS2413) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    pinStateArray.add(pinStateArray[0]);
-    pinStateArray.add(pinStateArray[1]);
-  } else if (node.familyId == DS2405) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    pinStateArray.add(pinStateArray[0]);
-  } else if (node.familyId == DS2423) {
-    auto countersArray = jsonNode.createNestedArray("counters");
-    for (auto i : node.counters) {
-      countersArray.add(i);
-    }
-  }
-
-  String jsonString;
-  serializeJson(jsonNode, jsonString);
-  auto nodeTopic = mqtt_topic + "/" + node.idStr;
-  if (mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str()) > 0) {
-    // if success...
-    node.millisWhenLastPush = millis();
-  }
-}
-
-void pushAllStateToMQTT() {
-  for (auto &node : oneWireNodes) {
-    pushStateToMQTT(node);
-  }
-}
-
 // Main work of Tiny-OWC done here.
 void actOnSensors() {
   auto currentTime = millis();
@@ -978,7 +1037,6 @@ void actOnSensors() {
                   if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
                     auto actuatorNode = getOneWireNode(node.actuatorId);
                     if (actuatorNode != nullptr) {
-                      node.status = node.temperature < node.lowLimit;
 
                       uint8_t actuatorState = 0;
                       for (auto i = 0; i < 8; i++) {
@@ -986,11 +1044,11 @@ void actOnSensors() {
                       }
                       auto oldActuatorState = actuatorState;
 
-                      bitWrite(actuatorState, node.actuatorPin, !node.status);  // invert bit since 1 means relay off.
+                      bitWrite(actuatorState, node.actuatorPin, !shouldActuatorBeActive(node));  // invert bit since 1 means relay off.
                       actuatorState = setState(ds, *actuatorNode, actuatorState);
                       // if we managed to set state.
                       if (actuatorState > -1) {
-                        actuatorNode->actuatorPinState[node.actuatorPin] = !node.status;  // Low means On (reversed logic)
+                        actuatorNode->actuatorPinState[node.actuatorPin] = !shouldActuatorBeActive(node);  // Low means On (reversed logic)
 
                         ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
                         pushStateToMQTT(*actuatorNode);

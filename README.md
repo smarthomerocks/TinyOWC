@@ -9,7 +9,7 @@ This is a device that is primarily intended to be used as a controller for a flo
 <p>DS2408-based relay board controlling the heating:</p>
 <img alt="DS2408-based relay board" src="./document/Relay-board.jpg" />
 
-Tiny-OWC (Tiny OneWire Controller) samples all temperature sensors available on the 1-Wire buss every 20 seconds, if the temperature is outside a predeterminant range the Tiny-OWC will signal a actuator that will turn on/off the heat in that room.
+Tiny-OWC (Tiny OneWire Controller) samples all temperature sensors available on the 1-Wire buss every 15 seconds, if the temperature is outside a predeterminant range the Tiny-OWC will signal a actuator that will turn on/off the heat in that room.
 
 Currently supported temperature sensors are: DS18S20, DS18B20, DS1822
 

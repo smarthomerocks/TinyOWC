@@ -16,7 +16,6 @@ struct onewireNode {
   uint8_t familyId;  // e.g. 28
   String idStr;      // e.g. "28.EEA89B19160262"
   String name;       // optional description, e.g. "bedroom", length is limited.
-  bool status = false;  // open/close state signaled by temperature sensor to actuator, only applicable on temperature sensors.
   float lowLimit = UNSET_TEMPERATURE;        // only applicable on temperature sensors.
   float highLimit = UNSET_TEMPERATURE;       // only applicable on temperature sensors.
   float temperature = UNSET_TEMPERATURE;     // only applicable on temperature sensors.
