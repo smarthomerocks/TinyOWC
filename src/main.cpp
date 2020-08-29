@@ -398,11 +398,16 @@ void printOneWireNodes() {
   }
 
   uint8_t offset = (shownNodePage - 1) * NODES_PER_PAGE;
-  std::vector<onewireNode> pagedList(oneWireNodes.begin() + offset, oneWireNodes.begin() + offset + NODES_PER_PAGE);
+  uint8_t index = 0;
 
-  for (auto i : pagedList) {
+  while (index < NODES_PER_PAGE && offset + index < oneWireNodes.size()) {
+
+    auto i = oneWireNodes[offset + index];
+
     tft.setTextColor(TFT_WHITE);
     tft.setTextSize(2);
+
+    auto identifierString = (i.name != NULL && i.name.length() > 0) ? i.name.c_str() : i.idStr.c_str();
 
     if (isTemperatureSensor(i.familyId)) {
       if (i.failedReadingsInRow < 5) {
@@ -419,22 +424,31 @@ void printOneWireNodes() {
           snprintf(buff, sizeof(buff), "%.1f", i.temperature);
           tft.println(buff);
           tft.setTextColor(TFT_WHITE);
-          snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+          snprintf(buff, sizeof(buff), "%s", identifierString);
           tft.println(buff);
+
+          ESP_LOGI(TAG, "%s (%s): %.1f, limits: %.1f - %.1f, status: %s", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature, i.lowLimit, i.highLimit, shouldActuatorBeActive(i) ? "open" : "closed");
+
         } else {
           snprintf(buff, sizeof(buff), "%s: %.1f",familyIdToNameTranslation(i.familyId).c_str(), i.temperature);
           tft.println(buff);
-          snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+          snprintf(buff, sizeof(buff), "%s", identifierString);
           tft.println(buff);
+
+          ESP_LOGI(TAG, "%s (%s): %.1f", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.temperature);
+
         }
       } else {
         snprintf(buff, sizeof(buff), "%s: not avail", familyIdToNameTranslation(i.familyId).c_str());
         tft.println(buff);
-        snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+        snprintf(buff, sizeof(buff), "%s", identifierString);
         tft.println(buff);
+
+        ESP_LOGI(TAG, "%s (%s): not available", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+
       }
     } else if (i.familyId == DS2408) {
-      snprintf(buff, sizeof(buff), "%s, out:%d%d%d%d%d%d%d%d",
+      snprintf(buff, sizeof(buff), "%s: %d%d%d%d%d%d%d%d",
         familyIdToNameTranslation(i.familyId).c_str(),
         i.actuatorPinState[0],
         i.actuatorPinState[1],
@@ -445,38 +459,78 @@ void printOneWireNodes() {
         i.actuatorPinState[6],
         i.actuatorPinState[7]);
       tft.println(buff);
-      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
-      tft.println(buff);  
+      snprintf(buff, sizeof(buff), "%s", identifierString);
+      tft.println(buff);
+
+      ESP_LOGI(TAG, "%s (%s), out: %d %d %d %d %d %d %d %d",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1],
+        i.actuatorPinState[2],
+        i.actuatorPinState[3],
+        i.actuatorPinState[4],
+        i.actuatorPinState[5],
+        i.actuatorPinState[6],
+        i.actuatorPinState[7]);
+
     } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-      snprintf(buff, sizeof(buff), "%s,out: %d %d",
+      snprintf(buff, sizeof(buff), "%s: %d %d",
         familyIdToNameTranslation(i.familyId).c_str(),
         i.actuatorPinState[0],
         i.actuatorPinState[1]);
       tft.println(buff);
-      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      snprintf(buff, sizeof(buff), "%s", identifierString);
       tft.println(buff);
+
+      ESP_LOGI(TAG, "%s (%s), out: %d %d",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0],
+        i.actuatorPinState[1]);
+
     } else if (i.familyId == DS2405) {
-      snprintf(buff, sizeof(buff), "%s,out: %d",
+      snprintf(buff, sizeof(buff), "%s: %d",
         familyIdToNameTranslation(i.familyId).c_str(),
         i.actuatorPinState[0]);
       tft.println(buff);
-      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      snprintf(buff, sizeof(buff), "%s", identifierString);
+
+      ESP_LOGI(TAG, "%s (%s), out: %d",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.actuatorPinState[0]);
+
     } else if (i.familyId == DS2423) {
-      snprintf(buff, sizeof(buff), "%s,count:%d %d",
+      snprintf(buff, sizeof(buff), "%s: %d %d",
         familyIdToNameTranslation(i.familyId).c_str(),
         i.counters[0],
         i.counters[1]);
       tft.println(buff);
-      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      snprintf(buff, sizeof(buff), "%s", identifierString);
       tft.println(buff);
+
+      ESP_LOGI(TAG, "%s (%s), counters: %d %d",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str(),
+        i.counters[0],
+        i.counters[1]);
     } else {
+      Serial.println(familyIdToNameTranslation(i.familyId).c_str());
+
       snprintf(buff, sizeof(buff), "%s",
         familyIdToNameTranslation(i.familyId).c_str());
       tft.println(buff);
-      snprintf(buff, sizeof(buff), "%s", i.idStr.c_str());
+      snprintf(buff, sizeof(buff), "%s", identifierString);
+      tft.println(buff);
+
+      ESP_LOGI(TAG, "%s (%s)",
+        i.idStr.c_str(),
+        familyIdToNameTranslation(i.familyId).c_str());
     }
     
     tft.println();
+    index++;
   }
 
   tft.setTextColor(TFT_WHITE);
@@ -1050,7 +1104,7 @@ void actOnSensors() {
                       if (actuatorState > -1) {
                         actuatorNode->actuatorPinState[node.actuatorPin] = !shouldActuatorBeActive(node);  // Low means On (reversed logic)
 
-                        ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN), String(actuatorState, BIN));
+                        ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN).c_str(), String(actuatorState, BIN).c_str());
                         pushStateToMQTT(*actuatorNode);
                       }
                     }
