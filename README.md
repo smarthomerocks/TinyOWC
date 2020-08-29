@@ -15,6 +15,8 @@ Currently supported temperature sensors are: DS18S20, DS18B20, DS1822
 
 Currently supported actuators are: DS2408 (possible future support for DS2405, DS2406, DS2413)
 
+Other sensors supported: DS2423 (dual 32-bit counter)
+
 Current settings and status is displayed on the TTGO LCD-display for easy overview. Status and settings are also available over the MQTT-protocol using the build in WiFi, for easy integration with Home Automation systems.
 
 ## Build and upload software
@@ -50,7 +52,7 @@ Tiny-OWC does not automatically scan for available devices on the 1-Wire bus, to
 The saved devices will then be sampled by the Tiny-OWC every XX-seconds and displayed on the LCD display.
 
 If no devices are found, check all cables!
-If scanning never finish, press the reset-button and initialize another scan, if the error persists then there are problem with the communication between the TTGO ESP32 board and the DS2480-circuit on the Tiny-OWC board, check components and solderings!
+If scanning never finish, press the reset-button and initialize another scan, if the error persists then there are problem with the communication between the TTGO ESP32 board and the DS2480-circuit on the Tiny-OWC board, check components and soldering!
 
 ## Status page
 
