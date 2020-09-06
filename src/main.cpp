@@ -25,6 +25,7 @@ extern "C" {
 #include "ds18x20.h"
 #include "ds2408.h"
 #include "ds2423.h"
+#include "influxdb.h"
 
 #ifndef TFT_DISPOFF
 #define TFT_DISPOFF 0x28
@@ -46,9 +47,15 @@ extern "C" {
 #define FIRST_BUTTON 0
 #define SECOND_BUTTON 35
 
-#define PARAM_FILE "/param.json"
+#define AUX_MQTT "/mqtt"
 #define AUX_MQTTSETTING "/mqtt_settings"
 #define AUX_MQTTSAVE "/mqtt_save"
+#define MQTT_PARAMS_FILE "/mqtt_params.json"
+
+#define AUX_INFLUX "/influx"
+#define AUX_INFLUXSETTING "/influx_settings"
+#define AUX_INFLUXSAVE "/influx_save"
+#define INFLUX_PARAMS_FILE "/influx_params.json"
 
 #define SAMPLE_DELAY 15000          // milliseconds between reading sensors.
 #define FORCE_MQTT_PUSH 60000       // if still nothing has changed after this many milliseconds, we force a push to show that we are alive.
@@ -125,6 +132,11 @@ String mqtt_base_cmdtopic;
 String mqtt_cmdtopic;
 TimerHandle_t mqttReconnectTimer;
 
+String influx_server;
+String influx_dbname;
+String influx_user;
+String influx_password;
+
 String uniqueId = String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
 String appName = "Tiny-OWC_" + uniqueId;
 
@@ -133,6 +145,7 @@ uint8_t shownNodePage = 1;
 
 extern void pushStateToMQTT(onewireNode& node);
 extern void pushAllStateToMQTT();
+extern bool isMqttEnabled();
 
 // ----------------------------------------------------------------------------
 
@@ -180,18 +193,18 @@ int64_t getEpocTime() {
  * @param format e.g. "%d %b %Y, %H:%M:%S%z"
  * @param timeout for how many milliseconds we try to obtain time
  */
-String getTime(String format, uint32_t timeout = 5000) {
+/*String getTime(String format, uint32_t timeout = 5000) {
     struct tm timeinfo;
 
     if (!getLocalTime(&timeinfo, timeout)) {
-        return F("Failed to obtain time");
+      return F("Failed to obtain time");
     }
 
     char outstr[80];
     strftime(outstr, sizeof(outstr), format.c_str(), &timeinfo); // ISO 8601 time
 
     return String(outstr);
-}
+}*/
 
 // Load AutoConnectAux (desired web page) JSON from SPIFFS.
 bool loadAux(const String auxName) {
@@ -543,22 +556,22 @@ void printOneWireNodes() {
   if (shownNodePage > availableNodePages) shownNodePage = 1;
 }
 
-String loadParams(AutoConnectAux &aux, PageArgument &args) {
+String loadMqttParams(AutoConnectAux &aux, PageArgument &args) {
   (void)(args);
-  File param = SPIFFS.open(PARAM_FILE, "r");
+  File param = SPIFFS.open(MQTT_PARAMS_FILE, "r");
   if (param) {
     if (!aux.loadElement(param)) {
-      ESP_LOGE(TAG, "%s file failed to parse.", PARAM_FILE);
+      ESP_LOGE(TAG, "%s file failed to parse.", MQTT_PARAMS_FILE);
     }
     param.close();
   } else {
-    ESP_LOGE(TAG, "%s file failed to open.", PARAM_FILE);
+    ESP_LOGE(TAG, "%s file failed to open.", MQTT_PARAMS_FILE);
   }
 
   return String("");
 }
 
-String saveParams(AutoConnectAux &aux, PageArgument &args)
+String saveMqttParams(AutoConnectAux &aux, PageArgument &args)
 {
   mqttserver = args.arg("mqttserver");
   mqttserver.trim();
@@ -574,7 +587,7 @@ String saveParams(AutoConnectAux &aux, PageArgument &args)
 
   // The entered value is owned by AutoConnectAux of /mqtt_settings.
   // To retrieve the elements of /mqtt_settings, it is necessary to get the AutoConnectAux object of /mqtt_settings.
-  File param = SPIFFS.open(PARAM_FILE, "w");
+  File param = SPIFFS.open(MQTT_PARAMS_FILE, "w");
   portal.aux(AUX_MQTTSETTING)->saveElement(param, {"mqttserver", "mqttserver_port", "mqtt_base_topic", "mqtt_base_cmdtopic"});
   param.close();
 
@@ -584,6 +597,51 @@ String saveParams(AutoConnectAux &aux, PageArgument &args)
   echo.value += "Port: " + mqttserver_port + "<br>";
   echo.value += "Publish topic: " + mqtt_base_topic + "<br>";
   echo.value += "Command topic: " + mqtt_base_cmdtopic + "<br>";
+
+  return String("");
+}
+
+String loadInfluxParams(AutoConnectAux &aux, PageArgument &args) {
+  (void)(args);
+  File param = SPIFFS.open(INFLUX_PARAMS_FILE, "r");
+  if (param) {
+    if (!aux.loadElement(param)) {
+      ESP_LOGE(TAG, "%s file failed to parse.", INFLUX_PARAMS_FILE);
+    }
+    param.close();
+  } else {
+    ESP_LOGE(TAG, "%s file failed to open.", INFLUX_PARAMS_FILE);
+  }
+
+  return String("");
+}
+
+String saveInfluxParams(AutoConnectAux &aux, PageArgument &args)
+{
+  influx_server = args.arg("influx_server");
+  influx_server.trim();
+
+  influx_dbname = args.arg("influx_dbname");
+  influx_dbname.trim();
+
+  influx_user = args.arg("influx_user");
+  influx_user.trim();
+
+  influx_password = args.arg("influx_password");
+  influx_password.trim();
+
+  // The entered value is owned by AutoConnectAux of /influx_settings.
+  // To retrieve the elements of /influx_settings, it is necessary to get the AutoConnectAux object of /influx_settings.
+  File param = SPIFFS.open(INFLUX_PARAMS_FILE, "w");
+  portal.aux(AUX_INFLUXSETTING)->saveElement(param, {"influx_server", "influx_dbname", "influx_user", "influx_password"});
+  param.close();
+
+  // Echo back saved parameters to AutoConnectAux page.
+  AutoConnectText &echo = aux["parameters"].as<AutoConnectText>();
+  echo.value = "Server: " + influx_server + "<br>";
+  echo.value += "Database: " + influx_dbname + "<br>";
+  echo.value += "Username: " + influx_user + "<br>";
+  echo.value += "Password: " + influx_password + "<br>";
 
   return String("");
 }
@@ -620,10 +678,12 @@ void watchdogSetup() {
 // ----------------------------------------------------------------------------
 
 void connectToMqtt() {
-  ESP_LOGI(TAG, "Connecting to MQTT...");
+  if (isMqttEnabled()) {
+    ESP_LOGI(TAG, "Connecting to MQTT...");
 
-  if (WiFi.isConnected()) {
-    mqttClient.connect();
+    if (WiFi.isConnected()) {
+      mqttClient.connect();
+    }
   }
 }
 
@@ -715,56 +775,58 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 
 void pushStateToMQTT(onewireNode& node) {
-  // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
-  StaticJsonDocument<350> jsonNode;
-  auto time = getEpocTime();
+  if (isMqttEnabled()) {
+    // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
+    StaticJsonDocument<350> jsonNode;
+    auto time = getEpocTime();
 
-  ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
+    ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
 
-  jsonNode["id"] = node.idStr;
-  jsonNode["name"] = node.name;
-  jsonNode["time"] = time;
-  jsonNode["errors"] = node.errors;
-  jsonNode["success"] = node.success;
+    jsonNode["id"] = node.idStr;
+    jsonNode["name"] = node.name;
+    jsonNode["time"] = time;
+    jsonNode["errors"] = node.errors;
+    jsonNode["success"] = node.success;
 
-  if (isTemperatureSensor(node.familyId)) {
-    jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
-    jsonNode["lowLimit"] = node.lowLimit;
-    jsonNode["highLimit"] = node.highLimit;
-    jsonNode["status"] = shouldActuatorBeActive(node);
-    jsonNode["actuatorId"] = idToString(node.actuatorId);
-    jsonNode["actuatorPin"] = node.actuatorPin;
-  } else if (node.familyId == DS2408) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    for (auto i : node.actuatorPinState) {
-      pinStateArray.add(i);
+    if (isTemperatureSensor(node.familyId)) {
+      jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
+      jsonNode["lowLimit"] = node.lowLimit;
+      jsonNode["highLimit"] = node.highLimit;
+      jsonNode["status"] = shouldActuatorBeActive(node);
+      jsonNode["actuatorId"] = idToString(node.actuatorId);
+      jsonNode["actuatorPin"] = node.actuatorPin;
+    } else if (node.familyId == DS2408) {
+      auto pinStateArray = jsonNode.createNestedArray("pinState");
+      for (auto i : node.actuatorPinState) {
+        pinStateArray.add(i);
+      }
+    } else if (node.familyId == DS2406 || node.familyId == DS2413) {
+      auto pinStateArray = jsonNode.createNestedArray("pinState");
+      pinStateArray.add(pinStateArray[0]);
+      pinStateArray.add(pinStateArray[1]);
+    } else if (node.familyId == DS2405) {
+      auto pinStateArray = jsonNode.createNestedArray("pinState");
+      pinStateArray.add(pinStateArray[0]);
+    } else if (node.familyId == DS2423) {
+      auto countersArray = jsonNode.createNestedArray("counters");
+      for (auto i : node.counters) {
+        countersArray.add(i);
+      }
     }
-  } else if (node.familyId == DS2406 || node.familyId == DS2413) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    pinStateArray.add(pinStateArray[0]);
-    pinStateArray.add(pinStateArray[1]);
-  } else if (node.familyId == DS2405) {
-    auto pinStateArray = jsonNode.createNestedArray("pinState");
-    pinStateArray.add(pinStateArray[0]);
-  } else if (node.familyId == DS2423) {
-    auto countersArray = jsonNode.createNestedArray("counters");
-    for (auto i : node.counters) {
-      countersArray.add(i);
-    }
-  }
 
-  String jsonString;
-  serializeJson(jsonNode, jsonString);
-  auto nodeTopic = mqtt_topic + "/" + node.idStr;
-  if (mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str()) > 0) {
-    // if success...
-    node.millisWhenLastPush = millis();
+    String jsonString;
+    serializeJson(jsonNode, jsonString);
+    auto nodeTopic = mqtt_topic + "/" + node.idStr;
+    if (mqttClient.publish(nodeTopic.c_str(), 1, true, jsonString.c_str()) == 0) {
+      ESP_LOGI(TAG, "Failed to publish state to MQTT broker, node: %s.", node.idStr.c_str());
+    }
   }
 }
 
 void pushAllStateToMQTT() {
   for (auto &node : oneWireNodes) {
     pushStateToMQTT(node);
+    node.millisWhenLastPush = millis();
   }
 }
 
@@ -775,13 +837,14 @@ void WiFiEvent(WiFiEvent_t event) {
       case SYSTEM_EVENT_STA_GOT_IP:
         ESP_LOGI(TAG, "WiFi connected and got IP.");
 
-        configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
-        ESP_LOGI(TAG, "Time: %s", getTime("%d %b %Y, %H:%M:%S%z").c_str());
-
         connectToMqtt();
+        configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
+
         break;
       case SYSTEM_EVENT_STA_DISCONNECTED:
-        xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+        if (isMqttEnabled()) {
+          xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+        }
         ESP_LOGI(TAG, "Lost WiFi connection, trying to reconnect...");
         WiFi.begin();
         break;
@@ -885,6 +948,89 @@ void handle_ping() {
 
 // ----------------------------------------------------------------------------
 
+bool isMqttEnabled() {
+  return mqttserver.length() > 0 && mqttserver_port.length() > 0 && mqtt_base_topic.length() > 0 && mqtt_base_cmdtopic.length() > 0;
+}
+
+void loadMqttSetting() {
+  AutoConnectAux *settings = portal.aux(AUX_MQTTSETTING);
+  PageArgument args;
+  AutoConnectAux &mqtt_setting = *settings;
+  loadMqttParams(mqtt_setting, args);
+  AutoConnectInput &mqttserverElm = mqtt_setting["mqttserver"].as<AutoConnectInput>();
+  AutoConnectInput &mqttserver_portElm = mqtt_setting["mqttserver_port"].as<AutoConnectInput>();
+  AutoConnectInput &mqtt_topicElm = mqtt_setting["mqtt_base_topic"].as<AutoConnectInput>();
+  AutoConnectInput &mqtt_cmdtopicElm = mqtt_setting["mqtt_base_cmdtopic"].as<AutoConnectInput>();
+
+  if (mqttserverElm.value.length()) {
+    mqttserver = mqttserverElm.value;    
+    ESP_LOGI(TAG, "mqttserver set to '%s'", mqttserver.c_str());
+  }
+  if (mqttserver_portElm.value.length()) {
+    mqttserver_port = mqttserver_portElm.value;
+    ESP_LOGI(TAG, "mqttserver_port set to '%d'", mqttserver_port.toInt());
+  }
+  if (mqtt_topicElm.value.length()) {
+    mqtt_base_topic = mqtt_topicElm.value;
+    mqtt_topic = mqtt_base_topic + "/" + uniqueId;
+    ESP_LOGI(TAG, "mqtt_topic set to '%s'", mqtt_topic.c_str());
+  }
+  if (mqtt_cmdtopicElm.value.length()) {
+    mqtt_base_cmdtopic = mqtt_cmdtopicElm.value;
+    mqtt_cmdtopic = mqtt_base_cmdtopic + "/" + uniqueId;
+    ESP_LOGI(TAG, "mqtt_cmdtopic set to '%s'", mqtt_cmdtopic.c_str());
+  }
+
+  portal.on(AUX_MQTTSETTING, loadMqttParams);
+  portal.on(AUX_MQTTSAVE, saveMqttParams);
+
+  if (isMqttEnabled()) {
+    mqttClient.onConnect(onMqttConnect);
+    mqttClient.onDisconnect(onMqttDisconnect);
+    mqttClient.onSubscribe(onMqttSubscribe);
+    mqttClient.onUnsubscribe(onMqttUnsubscribe);
+    mqttClient.onMessage(onMqttMessage);
+    mqttClient.setClientId(appName.c_str());
+    mqttClient.setMaxTopicLength(256);
+    mqttClient.setWill(mqtt_topic.c_str(), 2, true, "DISCONNECTED");
+    mqttClient.setServer(mqttserver.c_str(), mqttserver_port.toInt());
+    mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+    WiFi.onEvent(WiFiEvent);
+    tft.println("MQTT support loaded.");
+  }
+}
+
+void loadInfluxDbSetting() {
+  AutoConnectAux *settings = portal.aux(AUX_INFLUXSETTING);
+  PageArgument args;
+  AutoConnectAux &influx_setting = *settings;
+  loadInfluxParams(influx_setting, args);
+  AutoConnectInput &influxDb_serverElm = influx_setting["influx_server"].as<AutoConnectInput>();
+  AutoConnectInput &influxDb_dbNameElm = influx_setting["influx_dbname"].as<AutoConnectInput>();
+  AutoConnectInput &influxDb_usernameElm = influx_setting["influx_user"].as<AutoConnectInput>();
+  AutoConnectInput &influxDb_passwordElm = influx_setting["influx_password"].as<AutoConnectInput>();
+
+  if (influxDb_serverElm.value.length()) {
+    influx_server = influxDb_serverElm.value;    
+    ESP_LOGI(TAG, "influx_server set to '%s'", influx_server.c_str());
+  }
+  if (influxDb_dbNameElm.value.length()) {
+    influx_dbname = influxDb_dbNameElm.value;
+    ESP_LOGI(TAG, "influx_dbname set to '%s'", influx_dbname.c_str());
+  }
+  if (influxDb_usernameElm.value.length()) {
+    influx_user = influxDb_usernameElm.value;
+    ESP_LOGI(TAG, "influx_user set to '%s'", influx_user.c_str());
+  }
+  if (influxDb_passwordElm.value.length()) {
+    influx_password = influxDb_passwordElm.value;
+    ESP_LOGI(TAG, "influx_password set to '%s'", influx_password.c_str());
+  }
+
+  portal.on(AUX_INFLUXSETTING, loadInfluxParams);
+  portal.on(AUX_INFLUXSAVE, saveInfluxParams);
+}
+
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 500);  // 500ms timeout to DS2480
@@ -937,7 +1083,7 @@ void setup() {
   Serial.println("SPIFFS initialized.");
 
   // load web pages from SPIFFS, reboot if we fail.
-  if (!loadAux(AUX_MQTTSETTING) || !loadAux(AUX_MQTTSAVE)) {
+  if (!loadAux(AUX_MQTT) || !loadAux(AUX_INFLUX)) {
     tft.println("Error loading webpages from SPIFFS.");
     Serial.println("An Error has occurred while loading webpages from SPIFFS.");
     delay(5000);
@@ -947,51 +1093,8 @@ void setup() {
   tft.println("Pages loaded from SPIFFS.");
   Serial.println("Web pages loaded from SPIFFS.");
 
-  AutoConnectAux *settings = portal.aux(AUX_MQTTSETTING);
-  PageArgument args;
-  AutoConnectAux &mqtt_setting = *settings;
-  loadParams(mqtt_setting, args);
-  AutoConnectInput &mqttserverElm = mqtt_setting["mqttserver"].as<AutoConnectInput>();
-  AutoConnectInput &mqttserver_portElm = mqtt_setting["mqttserver_port"].as<AutoConnectInput>();
-  AutoConnectInput &mqtt_topicElm = mqtt_setting["mqtt_base_topic"].as<AutoConnectInput>();
-  AutoConnectInput &mqtt_cmdtopicElm = mqtt_setting["mqtt_base_cmdtopic"].as<AutoConnectInput>();
-
-  if (mqttserverElm.value.length()) {
-    mqttserver = mqttserverElm.value;    
-    ESP_LOGI(TAG, "mqttserver set to '%s'", mqttserver.c_str());
-  }
-  if (mqttserver_portElm.value.length()) {
-    mqttserver_port = mqttserver_portElm.value;
-    ESP_LOGI(TAG, "mqttserver_port set to '%d'", mqttserver_port.toInt());
-  }
-  if (mqtt_topicElm.value.length()) {
-    mqtt_base_topic = mqtt_topicElm.value;
-    mqtt_topic = mqtt_base_topic + "/" + uniqueId;
-    ESP_LOGI(TAG, "mqtt_topic set to '%s'", mqtt_topic.c_str());
-  }
-  if (mqtt_cmdtopicElm.value.length()) {
-    mqtt_base_cmdtopic = mqtt_cmdtopicElm.value;
-    mqtt_cmdtopic = mqtt_base_cmdtopic + "/" + uniqueId;
-    ESP_LOGI(TAG, "mqtt_cmdtopic set to '%s'", mqtt_cmdtopic.c_str());
-  }
-
-  portal.on(AUX_MQTTSETTING, loadParams);
-  portal.on(AUX_MQTTSAVE, saveParams);
-
-  if (mqttserver.length() > 0 && mqttserver_port.length() > 0) {
-    mqttClient.onConnect(onMqttConnect);
-    mqttClient.onDisconnect(onMqttDisconnect);
-    mqttClient.onSubscribe(onMqttSubscribe);
-    mqttClient.onUnsubscribe(onMqttUnsubscribe);
-    mqttClient.onMessage(onMqttMessage);
-    mqttClient.setClientId(appName.c_str());
-    mqttClient.setMaxTopicLength(256);
-    mqttClient.setWill(mqtt_topic.c_str(), 2, true, "DISCONNECTED");
-    mqttClient.setServer(mqttserver.c_str(), mqttserver_port.toInt());
-    mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
-    WiFi.onEvent(WiFiEvent);
-    tft.println("MQTT support loaded.");
-  }
+  loadMqttSetting();
+  loadInfluxDbSetting();
 
   AutoConnectConfig config;
   config.apid = appName;
@@ -1022,6 +1125,11 @@ void setup() {
   } else {
     tft.println("Portal started, IP:" + WiFi.localIP().toString() + "/setup");
     Serial.println("Capture portal started, IP:" + WiFi.localIP().toString() + "/setup");
+  }
+
+  initInfluxDB(influx_server.c_str(), influx_dbname.c_str(), influx_user.c_str(), influx_password.c_str());
+  if (isInfluxDbEnabled) {
+    tft.println("InfluxDB support loaded.");
   }
 
   delay(3000);
@@ -1055,11 +1163,19 @@ void setup() {
   Serial.println("Setup() done.");
 }
 
+void pushChanges(onewireNode& node) {
+  if (WiFi.isConnected()) {
+    writeInfluxPoint(node);
+    pushStateToMQTT(node);
+    node.millisWhenLastPush = millis();
+  }
+}
+
 // Main work of Tiny-OWC done here.
 void actOnSensors() {
-  auto currentTime = millis();
+  auto currentMillis = millis();
 
-  if (oneWireNodes.size() > 0 && lastReadingTime + SAMPLE_DELAY < currentTime) {
+  if (oneWireNodes.size() > 0 && lastReadingTime + SAMPLE_DELAY < currentMillis) {
 
     if (!conversionStarted) {
       startSimultaneousConversion(ds);
@@ -1072,7 +1188,6 @@ void actOnSensors() {
         for (auto &node : oneWireNodes) {
           if (isTemperatureSensor(node.familyId)) {
             auto reading = readConversion(ds, node);
-            auto currentMillis = millis();
 
             if (reading != UNSET_TEMPERATURE) {
               node.failedReadingsInRow = 0;
@@ -1083,7 +1198,7 @@ void actOnSensors() {
 
               // Only record changes if temperature are greater than hysteresis, we don't want too frequent changes.
               // 85 we don't need to measure this high temperatures, 85 is also the power-on temperature of the sensor.
-              if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85) {
+              if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85.0) {
                 node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
                 node.temperature = temperature;
                 // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
@@ -1105,24 +1220,23 @@ void actOnSensors() {
                         actuatorNode->actuatorPinState[node.actuatorPin] = !shouldActuatorBeActive(node);  // Low means On (reversed logic)
 
                         ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN).c_str(), String(actuatorState, BIN).c_str());
-                        pushStateToMQTT(*actuatorNode);
+                        pushChanges(*actuatorNode);
                       }
                     }
                   }
                 }
                 
-                pushStateToMQTT(node);           
+                pushChanges(node);
               }
             } else {
               node.failedReadingsInRow++;
             }
             // make a force push even if nothing has changed, if changes are too infrequent.
-            if (node.millisWhenLastPush + FORCE_MQTT_PUSH > currentMillis) {
-              pushStateToMQTT(node);
+            if (node.millisWhenLastPush + FORCE_MQTT_PUSH < currentMillis) {
+              pushChanges(node);
             }
           } else if (node.familyId == DS2408) {
-
-            pushStateToMQTT(node);
+            pushChanges(node);
           } else if (node.familyId == DS2406 || node.familyId == DS2413) {
             // TODO
           } else if (node.familyId == DS2405) {
@@ -1139,17 +1253,18 @@ void actOnSensors() {
               node.counters[1] = b;
             }
             
-            if (a >= 0 || b >= 0) {
-              pushStateToMQTT(node);
+            if (a >= 0 && b >= 0) {
+              pushChanges(node);
             }
           }
         }
 
         numberOfSamplesSinceReboot++;
 
+        flushInflux();
         printOneWireNodes();
         
-        lastReadingTime = currentTime;
+        lastReadingTime = currentMillis;
       }
     }
   }
@@ -1189,6 +1304,11 @@ void loop() {
   } else {
     state = OPERATIONAL;
     actOnSensors();
+
+    if (WiFi.isConnected()) {
+      writeWiFiSignalStrength(appName);
+    }
+
     printLoopProgress();
   }
 

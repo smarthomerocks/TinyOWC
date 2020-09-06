@@ -23,7 +23,7 @@ struct onewireNode {
   uint16_t failedReadingsInRow = 0; // only applicable on temperature sensors.
   uint32_t errors = 0;  // read/write errors for device (if many then check device and cables)
   uint32_t success = 0; // read/write success operations for device
-  uint16_t millisWhenLastPush = 0; // keep track of how long since we reported status to MQTT-broker
+  unsigned long millisWhenLastPush = 0; // keep track of how long since we reported status to MQTT-broker or InfluxDB
   uint8_t actuatorId[8] = {}; // e.g. 29,29,E1,3,0,0,0,9C, only applicable on temperature sensors.
   int8_t actuatorPin = -1;    // only applicable on temperature sensors.
   bool actuatorPinState[8] = {false, false, false, false, false, false, false, false}; // only applicable on DS2405, DS2406 and DS2408 nodes.

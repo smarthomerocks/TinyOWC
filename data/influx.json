@@ -1,0 +1,80 @@
+[
+  {
+    "title": "InfluxDB",
+    "uri": "/influx_settings",
+    "menu": true,
+    "element": [
+      {
+        "name": "style",
+        "type": "ACStyle",
+        "value": "label+input,label+select{position:sticky;left:120px;width:230px!important;box-sizing:border-box;}"
+      },
+      {
+        "name": "header",
+        "type": "ACText",
+        "value": "<h2>InfluxDB server settings</h2>",
+        "style": "text-align:center;color:#2f4f4f;"
+      },
+      {
+        "name": "caption",
+        "type": "ACText",
+        "value": "Log readings to a InfluxDB server",
+        "style": "font-family:serif;color:#4682b4;"
+      },
+      {
+        "name": "influx_server",
+        "type": "ACInput",
+        "value": "",
+        "label": "Server"
+      },
+      {
+        "name": "influx_dbname",
+        "type": "ACInput",
+        "value": "",
+        "label": "Database"
+      },
+      {
+        "name": "influx_user",
+        "type": "ACInput",
+        "value": "",
+        "label": "Username"
+      },
+      {
+        "name": "influx_password",
+        "type": "ACInput",
+        "value": "",
+        "label": "Password"
+      },
+      {
+        "name": "newline",
+        "type": "ACElement",
+        "value": "<hr>"
+      },
+      {
+        "name": "save",
+        "type": "ACSubmit",
+        "value": "Save",
+        "uri": "/influx_save"
+      },
+      {
+        "name": "discard",
+        "type": "ACSubmit",
+        "value": "Discard",
+        "uri": "/"
+      }
+    ]
+  },
+  {
+    "title": "InfluxDB",
+    "uri": "/influx_save",
+    "menu": false,
+    "element": [
+      {
+        "name": "caption",
+        "type": "ACText",
+        "value": "<h4>Parameters saved as:</h4>",
+        "style": "text-align:center;color:#2f4f4f;padding:10px;"
+      }
+    ]
+  }
+]

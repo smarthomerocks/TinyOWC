@@ -1,0 +1,27 @@
+[
+  {
+    "name": "influx_server",
+    "type": "ACInput",
+    "value": "",
+    "placeholder": "http://myserver.home:8086",
+    "label": "Server"
+  },
+  {
+    "name": "influx_dbname",
+    "type": "ACInput",
+    "value": "",
+    "label": "Database"
+  },
+  {
+    "name": "influx_user",
+    "type": "ACInput",
+    "value": "",
+    "label": "Username"
+  },
+  {
+    "name": "influx_password",
+    "type": "ACInput",
+    "value": "",
+    "label": "Password"
+  }
+]
