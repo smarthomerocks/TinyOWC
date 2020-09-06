@@ -113,6 +113,7 @@ Button2 firstButton = Button2(FIRST_BUTTON);
 Button2 secondButton = Button2(SECOND_BUTTON);
 bool isScanning = false;
 long lastReadingTime = 0;
+long wifiReadingTime = 0;
 long numberOfSamplesSinceReboot = 0;
 
 // Use hardware SPI
@@ -1304,12 +1305,12 @@ void loop() {
   } else {
     state = OPERATIONAL;
     actOnSensors();
-
-    if (WiFi.isConnected()) {
-      writeWiFiSignalStrength(appName);
-    }
-
     printLoopProgress();
+  }
+
+  if (WiFi.isConnected() && wifiReadingTime + SAMPLE_DELAY < millis()) {
+    writeWiFiSignalStrength(appName);
+    wifiReadingTime = millis();
   }
 
   printState();
