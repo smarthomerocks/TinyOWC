@@ -1233,7 +1233,7 @@ void actOnSensors() {
               node.failedReadingsInRow++;
             }
             // make a force push even if nothing has changed, if changes are too infrequent.
-            if (node.millisWhenLastPush + FORCE_MQTT_PUSH < currentMillis) {
+            if (reading != UNSET_TEMPERATURE && node.millisWhenLastPush + FORCE_MQTT_PUSH < currentMillis) {
               pushChanges(node);
             }
           } else if (node.familyId == DS2408) {
