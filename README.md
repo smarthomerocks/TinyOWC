@@ -167,6 +167,11 @@ It currently supports one operation, "setSensor", to configure a sensor. The pay
 - **actuatorId** - the actuator this sensor should bind to (should control).
 - **actuatorPin** - the pin of the actuator that should be set high/low whenever temperature is outside the range. **First pin is "0", second "1" and so forth**.
 
+## InfluxDB
+
+Tiny-OWC support logging readings to the Time Series database [InfluxDB](https://www.influxdata.com/products/influxdb-overview/).
+Enter connection parameters in the "InfluxDB"-tab on the settings page to enable sending sensor readings to InfluxDB periodically.
+
 ## Hardware
 
 See the "document"-folder in this repository!
