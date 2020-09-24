@@ -1197,9 +1197,9 @@ void actOnSensors() {
               // filter some noise by only including changes larger than 0.5 degrees.
               ESP_LOGD(TAG, "Temp reading: raw %d, temp %.2f, last %.2f", reading, temperature, node.lastTemperature);
 
-              // Only record changes if temperature are greater than hysteresis, we don't want too frequent changes.
+              // Only record changes if temperature are greater or equal to hysteresis, we don't want too frequent changes.
               // 85 we don't need to measure this high temperatures, 85 is also the power-on temperature of the sensor.
-              if (abs(temperature - node.temperature) > TEMPERATURE_HYSTERESIS && temperature < 85.0) {
+              if (abs(temperature - node.temperature) >= TEMPERATURE_HYSTERESIS && temperature < 85.0) {
                 node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
                 node.temperature = temperature;
                 // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
@@ -1237,7 +1237,24 @@ void actOnSensors() {
               pushChanges(node);
             }
           } else if (node.familyId == DS2408) {
+            /*uint8_t currentState = getState(ds, node);
+            
+            if (currentState > -1) {
+              uint8_t newState = currentState;
+
+              for (auto i = 0; i < 8; i++) {
+                if (bitRead(currentState, i) != node.actuatorPinState[i]) {
+                  bitWrite(newState, i, node.actuatorPinState[i]);
+                }
+              }
+              // make sure the DS2408 actually reflects the state of actuatorPinState.
+              if (newState != currentState) {
+                setState(ds, node, newState);
+              }
+            }*/
+
             pushChanges(node);
+
           } else if (node.familyId == DS2406 || node.familyId == DS2413) {
             // TODO
           } else if (node.familyId == DS2405) {
