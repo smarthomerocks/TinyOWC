@@ -89,6 +89,7 @@ const char Base_Html[] PROGMEM = R"rawliteral(
     <body>
       <h1>Tiny-OWC</h1>
       <p>Board id: %UNIQUE_ID%</p>
+      <p>WiFi RSSI: %WIFI_RSSI%</p>
       <p>%UPTIME%</p>
       <h3>1-Wire devices:</h3>
       %ONE_WIRE_DEVICES%
@@ -119,7 +120,7 @@ long numberOfSamplesSinceReboot = 0;
 // Use hardware SPI
 TFT_eSPI tft = TFT_eSPI(135, 240);  // Width, Height, screen dimension
 
-DS2480B ds(Serial2);
+DS2480B ds(Wire);
 
 WebServer webserver;
 AsyncMqttClient mqttClient;
@@ -857,7 +858,11 @@ void WiFiEvent(WiFiEvent_t event) {
 void handle_indexHtml() {
   auto html = String(Base_Html);
 
-  html.replace("%UNIQUE_ID%" , uniqueId);
+  html.replace("%UNIQUE_ID%", uniqueId);
+
+  if (WiFi.status() == WL_CONNECTED) {
+    html.replace("%WIFI_RSSI%", String(WiFi.RSSI()));
+  }
 
   auto seconds = (esp_timer_get_time() - START_TIME) / 1000000; // esp_timer_get_time in microseconds
   uint16_t days, hours, minutes;
@@ -876,13 +881,14 @@ void handle_indexHtml() {
   for (auto i : oneWireNodes) {
     if (isTemperatureSensor(i.familyId)) {
         if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-pin: %d, status: %s, errors: %d, success: %d</li>", 
+          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-id: %s, actuator-pin: %d, status: %s, errors: %d, success: %d</li>", 
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
           i.name.c_str(),
           i.temperature,
           i.lowLimit,
           i.highLimit,
+          idToString(i.actuatorId).c_str(),
           i.actuatorPin,
           shouldActuatorBeActive(i) ? "open" : "closed",
           i.errors,
@@ -1034,9 +1040,9 @@ void loadInfluxDbSetting() {
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 500);  // 500ms timeout to DS2480
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 800);  // 800ms timeout to DS2480
   Serial.println("Setup serial ports done.");
-
+  
   tft.init();
   tft.setRotation(3);
   tft.setTextWrap(false, false);
