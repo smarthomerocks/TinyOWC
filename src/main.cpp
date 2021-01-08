@@ -120,7 +120,7 @@ long numberOfSamplesSinceReboot = 0;
 // Use hardware SPI
 TFT_eSPI tft = TFT_eSPI(135, 240);  // Width, Height, screen dimension
 
-DS2480B ds(Wire);
+DS2480B ds(Serial2);
 
 WebServer webserver;
 AsyncMqttClient mqttClient;
@@ -862,7 +862,7 @@ void handle_indexHtml() {
 
   String wifiQuality = "not connected";
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.isConnected()) {
     auto rssi = WiFi.RSSI();
     if (rssi > -40) {
         wifiQuality = String(rssi) + "dBm (Excellent)";
