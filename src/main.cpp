@@ -860,9 +860,23 @@ void handle_indexHtml() {
 
   html.replace("%UNIQUE_ID%", uniqueId);
 
+  String wifiQuality = "not connected";
+
   if (WiFi.status() == WL_CONNECTED) {
-    html.replace("%WIFI_RSSI%", String(WiFi.RSSI()));
+    auto rssi = WiFi.RSSI();
+    if (rssi > -40) {
+        wifiQuality = String(rssi) + "dBm (Excellent)";
+    } else if (rssi > -68) {
+        wifiQuality = String(rssi) + "dBm (Very good)";
+    } else if (rssi > -71) {
+        wifiQuality = String(rssi) + "dBm (Good)";
+    } else if (rssi > -81) {
+        wifiQuality = String(rssi) + "dBm (Poor)";
+    } else {
+        wifiQuality = String(rssi) + "dBm (Unusable)";
+    }
   }
+  html.replace("%WIFI_RSSI%", wifiQuality);
 
   auto seconds = (esp_timer_get_time() - START_TIME) / 1000000; // esp_timer_get_time in microseconds
   uint16_t days, hours, minutes;
@@ -1042,7 +1056,7 @@ void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2, false, 800);  // 800ms timeout to DS2480
   Serial.println("Setup serial ports done.");
-  
+
   tft.init();
   tft.setRotation(3);
   tft.setTextWrap(false, false);
@@ -1106,12 +1120,13 @@ void setup() {
   AutoConnectConfig config;
   config.apid = appName;
   config.title = appName;
+  config.hostName = appName;
   config.bootUri = AC_ONBOOTURI_HOME; // add menuitem for OTA update
   config.homeUri = "/";
   config.portalTimeout = 45000; // continue in offline mode after 45 seconds, if WiFi connection not available
   config.retainPortal = true;   // continue the portal function even if the captive portal timed out
   config.psk = "12345678";      // default password
-  config.ota = AC_OTA_BUILTIN; 
+  config.ota = AC_OTA_BUILTIN;
   portal.config(config);
 
   webserver.on("/", handle_indexHtml);
