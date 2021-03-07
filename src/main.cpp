@@ -107,7 +107,7 @@ uint8_t progressIndicator = 0;
 STATES state = NO_DEVICES;
 Preferences preferences;
 
-char buff[512];
+char buff[1024];
 int64_t conversionStarted = 0;
 
 Button2 firstButton = Button2(FIRST_BUTTON);
@@ -891,11 +891,23 @@ void handle_indexHtml() {
   snprintf(buff, sizeof(buff), "Uptime: <strong>%d</strong> days, <strong>%d</strong> hours, <strong>%d</strong> min, <strong>%lli</strong> sec", days, hours, minutes, seconds);
   html.replace("%UPTIME%" , String(buff));
 
-  String oneWireList = "<ul>";
+  String oneWireList = "<ol>";
   for (auto i : oneWireNodes) {
     if (isTemperatureSensor(i.familyId)) {
         if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", temp: %.1f, low-limit: %.1f, high-limit: %.1f, actuator-id: %s, actuator-pin: %d, status: %s, errors: %d, success: %d</li>", 
+          snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                       "<tr><td>Id</td><td>%s</td></tr>"
+                                       "<tr><td>Type</td><td>%s</td></tr>"
+                                       "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                       "<tr><td>Temp</td><td>%.1f</td></tr>"
+                                       "<tr><td>Low-limit</td><td>%.1f</td></tr>"
+                                       "<tr><td>High-limit</td><td>%.1f</td></tr>"
+                                       "<tr><td>Actuator-id</td><td>%s</td></tr>"
+                                       "<tr><td>Actuator-pin</td><td>%d</td></tr>"
+                                       "<tr><td>Status</td><td>%s</td></tr>"
+                                       "<tr><td>Errors</td><td>%d</td></tr>"
+                                       "<tr><td>Success</td><td>%d</td></tr>"
+                                       "</tbody></table></li>", 
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
           i.name.c_str(),
@@ -908,10 +920,23 @@ void handle_indexHtml() {
           i.errors,
           i.success);
         } else {
-          snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\": Not connected.</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
+          snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                       "<tr><td>Id</td><td>%s</td></tr>"
+                                       "<tr><td>Type</td><td>%s</td></tr>"
+                                       "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                       "<tr><td>Status</td><td>Not connected.</td></tr>"
+                                       "</tbody></table></li>",
+                                       i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
         }
     } else if (i.familyId == DS2408) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d %d %d %d %d %d %d %d, errors: %d, success: %d</li>",
+      snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                    "<tr><td>Id</td><td>%s</td></tr>"
+                                    "<tr><td>Type</td><td>%s</td></tr>"
+                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                    "<tr><td>Pins</td><td>%d %d %d %d %d %d %d %d</td></tr>"
+                                    "<tr><td>Errors</td><td>%d</td></tr>"
+                                    "<tr><td>Success</td><td>%d</td></tr>"
+                                    "</tbody></table></li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.name.c_str(),
@@ -926,7 +951,14 @@ void handle_indexHtml() {
         i.errors,
         i.success);
     } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d %d, errors: %d, success: %d</li>",
+      snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                    "<tr><td>Id</td><td>%s</td></tr>"
+                                    "<tr><td>Type</td><td>%s</td></tr>"
+                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                    "<tr><td>Pins</td><td>%d %d</td></tr>"
+                                    "<tr><td>Errors</td><td>%d</td></tr>"
+                                    "<tr><td>Success</td><td>%d</td></tr>"
+                                    "</tbody></table></li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.name.c_str(),
@@ -935,7 +967,14 @@ void handle_indexHtml() {
         i.errors,
         i.success);
     } else if (i.familyId == DS2405) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", pins: %d, errors: %d, success: %d</li>",
+      snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                    "<tr><td>Id</td><td>%s</td></tr>"
+                                    "<tr><td>Type</td><td>%s</td></tr>"
+                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                    "<tr><td>Pins</td><td>%d</td></tr>"
+                                    "<tr><td>Errors</td><td>%d</td></tr>"
+                                    "<tr><td>Success</td><td>%d</td></tr>"
+                                    "</tbody></table></li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.name.c_str(),
@@ -943,7 +982,14 @@ void handle_indexHtml() {
         i.errors,
         i.success);
     } else if (i.familyId == DS2423) {
-      snprintf(buff, sizeof(buff), "<li>%s (%s), name: \"%s\", counters: %d %d, errors: %d, success: %d</li>",
+      snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                    "<tr><td>Id</td><td>%s</td></tr>"
+                                    "<tr><td>Type</td><td>%s</td></tr>"
+                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                    "<tr><td>Counters</td><td>%d %d</td></tr>"
+                                    "<tr><td>Errors</td><td>%d</td></tr>"
+                                    "<tr><td>Success</td><td>%d</td></tr>"
+                                    "</tbody></table></li>",
         i.idStr.c_str(),
         familyIdToNameTranslation(i.familyId).c_str(),
         i.name.c_str(),
@@ -952,12 +998,16 @@ void handle_indexHtml() {
         i.errors,
         i.success);
     } else {
-      snprintf(buff, sizeof(buff), "<li>%s (%s)</li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+      snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                    "<tr><td>Id</td><td>%s</td></tr>"
+                                    "<tr><td>Type</td><td>%s</td></tr>"                                    
+                                    "</tbody></table></li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
     }
 
     oneWireList += String(buff);
+    oneWireList += "<hr>";
   }
-  oneWireList += "</ul>";
+  oneWireList += "</ol>";
   html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
 
   webserver.send(200, "text/html", html);
