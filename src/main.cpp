@@ -96,7 +96,9 @@ const char Base_Html[] PROGMEM = R"rawliteral(
       <p>
         <a href="/setup">Setup</a>
       </p>
-
+      <script>
+        setInterval('location.reload()', 5000);
+      </script>
     </body>
   </html>
 )rawliteral";
