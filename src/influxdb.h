@@ -1,5 +1,6 @@
 #include <InfluxDbClient.h>
 #include "onewire.h"
+#include "tinyowc.h"
 
 //#define INFLUXDB_CLIENT_DEBUG_ENABLE
 

@@ -8,6 +8,7 @@
 #include <SPIFFS.h>
 #include <FS.h>
 #include <WiFi.h>
+#include <AsyncTCP.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <AutoConnect.h>
@@ -17,6 +18,7 @@ extern "C" {
 	#include "freertos/timers.h"
 }
 #include "esp_log.h"
+#include "tinyowc.h"
 #include "Button2.h"
 #include "HardwareSerial.h"
 #include "SPI.h"
@@ -62,7 +64,11 @@ extern "C" {
 #define TEMPERATURE_HYSTERESIS 0.5  // degrees celsius.
 #define WDT_TIMEOUT_SEC 60          // main loop watchdog, if stalled longer than XX seconds we will reboot.
 
-static const char* TAG = "TinyOWC";
+// Use hardware SPI
+TFT_eSPI tft = TFT_eSPI(135, 240);  // Width, Height, screen dimension
+
+// 1-Wire nodes to show on LCD-display at the same time
+const uint8_t NODES_PER_PAGE = 2;
 
 static const int64_t START_TIME = esp_timer_get_time();
 
@@ -81,23 +87,28 @@ const char Base_Html[] PROGMEM = R"rawliteral(
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <link rel="icon" href="data:,">
       <style>
-        * {
-            font-family: courier, arial, helvetica;
-          }
+        *{font-family: courier, arial, helvetica}
+        html{line-height:1.15;-webkit-text-size-adjust:100%;box-sizing:border-box;text-rendering:optimizeLegibility}
+        img,video{height:auto;max-width:100%}
+        table{border-collapse:collapse;border-spacing:0}
+        td,th{padding:0}
       </style>
     </head>
     <body>
       <h1>Tiny-OWC</h1>
-      <p>Board id: %UNIQUE_ID%</p>
-      <p>WiFi RSSI: %WIFI_RSSI%</p>
+      <p>Board id: <strong>%UNIQUE_ID%</strong></p>
+      <p>Tiny OWC group: <strong>%TINYOWC_GROUP%</strong></p>
+      <p>WiFi RSSI: <strong>%WIFI_RSSI%</strong></p>
       <p>%UPTIME%</p>
+      <p>Distribute heat within group: <strong>%TINYOWC_DISTRIBUTE_HEAT%</strong></p>
+      <p>Calculated heat requirement: <strong>%HEAT_REQUIREMENT_PRODUCT%</strong> (for this controller)</p>
       <h3>1-Wire devices:</h3>
       %ONE_WIRE_DEVICES%
       <p>
         <a href="/setup">Setup</a>
       </p>
       <script>
-        setInterval('location.reload()', 5000);
+        setInterval('location.reload()', 10 * 1000);
       </script>
     </body>
   </html>
@@ -119,9 +130,6 @@ long lastReadingTime = 0;
 long wifiReadingTime = 0;
 long numberOfSamplesSinceReboot = 0;
 
-// Use hardware SPI
-TFT_eSPI tft = TFT_eSPI(135, 240);  // Width, Height, screen dimension
-
 DS2480B ds(Serial2);
 
 WebServer webserver;
@@ -134,6 +142,11 @@ String mqtt_base_topic;
 String mqtt_topic;
 String mqtt_base_cmdtopic;
 String mqtt_cmdtopic;
+
+String tinyowc_group = "1";
+boolean tinyowc_distribute_heat = false;
+uint16_t heat_requirement_product = 0;
+
 TimerHandle_t mqttReconnectTimer;
 
 String influx_server;
@@ -144,7 +157,6 @@ String influx_password;
 String uniqueId = String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
 String appName = "Tiny-OWC_" + uniqueId;
 
-const uint8_t NODES_PER_PAGE = 2; // 1-Wire nodes to show on LCD-display at the same time
 uint8_t shownNodePage = 1;
 
 extern void pushStateToMQTT(onewireNode& node);
@@ -589,20 +601,27 @@ String saveMqttParams(AutoConnectAux &aux, PageArgument &args)
   mqtt_base_cmdtopic = args.arg("mqtt_base_cmdtopic");
   mqtt_base_cmdtopic.trim();
 
+  tinyowc_group = args.arg("tinyowc_group");
+  tinyowc_group.trim();
+  
+  tinyowc_distribute_heat = args.arg("tinyowc_distribute_heat") == "checked";
+
   // The entered value is owned by AutoConnectAux of /mqtt_settings.
   // To retrieve the elements of /mqtt_settings, it is necessary to get the AutoConnectAux object of /mqtt_settings.
   File param = SPIFFS.open(MQTT_PARAMS_FILE, "w");
-  portal.aux(AUX_MQTTSETTING)->saveElement(param, {"mqttserver", "mqttserver_port", "mqtt_base_topic", "mqtt_base_cmdtopic"});
+  portal.aux(AUX_MQTTSETTING)->saveElement(param, {"mqttserver", "mqttserver_port", "mqtt_base_topic", "mqtt_base_cmdtopic", "tinyowc_group", "tinyowc_distribute_heat"});
   param.close();
 
   // Echo back saved parameters to AutoConnectAux page.
-  AutoConnectText &echo = aux["parameters"].as<AutoConnectText>();
-  echo.value = "Server: " + mqttserver + "<br>";
+  AutoConnectText &echo = aux["results"].as<AutoConnectText>();
+  echo.value = "<h4>Parameters saved as:</h4>";
+  echo.value += "Server: " + mqttserver + "<br>";
   echo.value += "Port: " + mqttserver_port + "<br>";
   echo.value += "Publish topic: " + mqtt_base_topic + "<br>";
   echo.value += "Command topic: " + mqtt_base_cmdtopic + "<br>";
-
-  return String("");
+  echo.value += "TinyOWC group: " + tinyowc_group + "<br>";
+  echo.value += "Distribute heat: " + String(tinyowc_distribute_heat) + "<br>";
+  return String();
 }
 
 String loadInfluxParams(AutoConnectAux &aux, PageArgument &args) {
@@ -641,13 +660,13 @@ String saveInfluxParams(AutoConnectAux &aux, PageArgument &args)
   param.close();
 
   // Echo back saved parameters to AutoConnectAux page.
-  AutoConnectText &echo = aux["parameters"].as<AutoConnectText>();
-  echo.value = "Server: " + influx_server + "<br>";
+  AutoConnectText &echo = aux["results"].as<AutoConnectText>();
+  echo.value = "<h4>Parameters saved as:</h4>";
+  echo.value += "Server: " + influx_server + "<br>";
   echo.value += "Database: " + influx_dbname + "<br>";
   echo.value += "Username: " + influx_user + "<br>";
   echo.value += "Password: " + influx_password + "<br>";
-
-  return String("");
+  return String();
 }
 
 bool startedCapturePortal(IPAddress ip) {
@@ -695,7 +714,7 @@ void onMqttConnect(bool sessionPresent) {
   ESP_LOGI(TAG, "Connected to MQTT. Session present: %s", String(sessionPresent));
   if (mqtt_cmdtopic.length() > 0) {
     // TODO: should we subscribe if session is already pressent? Maybe not...
-    mqttClient.subscribe(mqtt_cmdtopic.c_str(), 2);
+    mqttClient.subscribe(mqtt_cmdtopic.c_str(), 1);
     // make sure broker has our current state.
     pushAllStateToMQTT();
   }
@@ -893,124 +912,132 @@ void handle_indexHtml() {
   snprintf(buff, sizeof(buff), "Uptime: <strong>%d</strong> days, <strong>%d</strong> hours, <strong>%d</strong> min, <strong>%lli</strong> sec", days, hours, minutes, seconds);
   html.replace("%UPTIME%" , String(buff));
 
-  String oneWireList = "<ol>";
-  for (auto i : oneWireNodes) {
-    if (isTemperatureSensor(i.familyId)) {
-        if (i.failedReadingsInRow < 5) {
-          snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                       "<tr><td>Id</td><td>%s</td></tr>"
-                                       "<tr><td>Type</td><td>%s</td></tr>"
-                                       "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                       "<tr><td>Temp</td><td>%.1f</td></tr>"
-                                       "<tr><td>Low-limit</td><td>%.1f</td></tr>"
-                                       "<tr><td>High-limit</td><td>%.1f</td></tr>"
-                                       "<tr><td>Actuator-id</td><td>%s</td></tr>"
-                                       "<tr><td>Actuator-pin</td><td>%d</td></tr>"
-                                       "<tr><td>Status</td><td>%s</td></tr>"
-                                       "<tr><td>Errors</td><td>%d</td></tr>"
-                                       "<tr><td>Success</td><td>%d</td></tr>"
-                                       "</tbody></table></li>", 
+  html.replace("%TINYOWC_GROUP%", tinyowc_group);
+  html.replace("%TINYOWC_DISTRIBUTE_HEAT%", tinyowc_distribute_heat ? "true" : "false");
+  html.replace("%HEAT_REQUIREMENT_PRODUCT%", String(heat_requirement_product));
+
+  if (oneWireNodes.empty()) {
+    html.replace("%ONE_WIRE_DEVICES%" , "No devices found! Scan 1-Wire network to add new devices.");
+  } else {
+    String oneWireList = "<ol>";
+    for (auto i : oneWireNodes) {
+      if (isTemperatureSensor(i.familyId)) {
+          if (i.failedReadingsInRow < 5) {
+            snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                        "<tr><td>Id</td><td>%s</td></tr>"
+                                        "<tr><td>Type</td><td>%s</td></tr>"
+                                        "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                        "<tr><td>Temp</td><td>%.1f</td></tr>"
+                                        "<tr><td>Low-limit</td><td>%.1f</td></tr>"
+                                        "<tr><td>High-limit</td><td>%.1f</td></tr>"
+                                        "<tr><td>Actuator-id</td><td>%s</td></tr>"
+                                        "<tr><td>Actuator-pin</td><td>%d</td></tr>"
+                                        "<tr><td>Status</td><td>%s</td></tr>"
+                                        "<tr><td>Errors</td><td>%d</td></tr>"
+                                        "<tr><td>Success</td><td>%d</td></tr>"
+                                        "</tbody></table></li>", 
+            i.idStr.c_str(),
+            familyIdToNameTranslation(i.familyId).c_str(),
+            i.name.c_str(),
+            i.temperature,
+            i.lowLimit,
+            i.highLimit,
+            idToString(i.actuatorId).c_str(),
+            i.actuatorPin,
+            shouldActuatorBeActive(i) ? "open" : "closed",
+            i.errors,
+            i.success);
+          } else {
+            snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                        "<tr><td>Id</td><td>%s</td></tr>"
+                                        "<tr><td>Type</td><td>%s</td></tr>"
+                                        "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                        "<tr><td>Status</td><td>Not connected.</td></tr>"
+                                        "</tbody></table></li>",
+                                        i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
+          }
+      } else if (i.familyId == DS2408) {
+        snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                      "<tr><td>Id</td><td>%s</td></tr>"
+                                      "<tr><td>Type</td><td>%s</td></tr>"
+                                      "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                      "<tr><td>Pins</td><td>%d %d %d %d %d %d %d %d</td></tr>"
+                                      "<tr><td>Errors</td><td>%d</td></tr>"
+                                      "<tr><td>Success</td><td>%d</td></tr>"
+                                      "</tbody></table></li>",
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
           i.name.c_str(),
-          i.temperature,
-          i.lowLimit,
-          i.highLimit,
-          idToString(i.actuatorId).c_str(),
-          i.actuatorPin,
-          shouldActuatorBeActive(i) ? "open" : "closed",
+          i.actuatorPinState[0],
+          i.actuatorPinState[1],
+          i.actuatorPinState[2],
+          i.actuatorPinState[3],
+          i.actuatorPinState[4],
+          i.actuatorPinState[5],
+          i.actuatorPinState[6],
+          i.actuatorPinState[7],
           i.errors,
           i.success);
-        } else {
-          snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                       "<tr><td>Id</td><td>%s</td></tr>"
-                                       "<tr><td>Type</td><td>%s</td></tr>"
-                                       "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                       "<tr><td>Status</td><td>Not connected.</td></tr>"
-                                       "</tbody></table></li>",
-                                       i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
-        }
-    } else if (i.familyId == DS2408) {
-      snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                    "<tr><td>Id</td><td>%s</td></tr>"
-                                    "<tr><td>Type</td><td>%s</td></tr>"
-                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                    "<tr><td>Pins</td><td>%d %d %d %d %d %d %d %d</td></tr>"
-                                    "<tr><td>Errors</td><td>%d</td></tr>"
-                                    "<tr><td>Success</td><td>%d</td></tr>"
-                                    "</tbody></table></li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.name.c_str(),
-        i.actuatorPinState[0],
-        i.actuatorPinState[1],
-        i.actuatorPinState[2],
-        i.actuatorPinState[3],
-        i.actuatorPinState[4],
-        i.actuatorPinState[5],
-        i.actuatorPinState[6],
-        i.actuatorPinState[7],
-        i.errors,
-        i.success);
-    } else if (i.familyId == DS2406 || i.familyId == DS2413) {
-      snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                    "<tr><td>Id</td><td>%s</td></tr>"
-                                    "<tr><td>Type</td><td>%s</td></tr>"
-                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                    "<tr><td>Pins</td><td>%d %d</td></tr>"
-                                    "<tr><td>Errors</td><td>%d</td></tr>"
-                                    "<tr><td>Success</td><td>%d</td></tr>"
-                                    "</tbody></table></li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.name.c_str(),
-        i.actuatorPinState[0],
-        i.actuatorPinState[1],
-        i.errors,
-        i.success);
-    } else if (i.familyId == DS2405) {
-      snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                    "<tr><td>Id</td><td>%s</td></tr>"
-                                    "<tr><td>Type</td><td>%s</td></tr>"
-                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                    "<tr><td>Pins</td><td>%d</td></tr>"
-                                    "<tr><td>Errors</td><td>%d</td></tr>"
-                                    "<tr><td>Success</td><td>%d</td></tr>"
-                                    "</tbody></table></li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.name.c_str(),
-        i.actuatorPinState[0],
-        i.errors,
-        i.success);
-    } else if (i.familyId == DS2423) {
-      snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                    "<tr><td>Id</td><td>%s</td></tr>"
-                                    "<tr><td>Type</td><td>%s</td></tr>"
-                                    "<tr><td>Name</td><td>\"%s\"</td></tr>"
-                                    "<tr><td>Counters</td><td>%d %d</td></tr>"
-                                    "<tr><td>Errors</td><td>%d</td></tr>"
-                                    "<tr><td>Success</td><td>%d</td></tr>"
-                                    "</tbody></table></li>",
-        i.idStr.c_str(),
-        familyIdToNameTranslation(i.familyId).c_str(),
-        i.name.c_str(),
-        i.counters[0],
-        i.counters[1],
-        i.errors,
-        i.success);
-    } else {
-      snprintf(buff, sizeof(buff), "<li><table><tbody>"
-                                    "<tr><td>Id</td><td>%s</td></tr>"
-                                    "<tr><td>Type</td><td>%s</td></tr>"                                    
-                                    "</tbody></table></li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
-    }
+      } else if (i.familyId == DS2406 || i.familyId == DS2413) {
+        snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                      "<tr><td>Id</td><td>%s</td></tr>"
+                                      "<tr><td>Type</td><td>%s</td></tr>"
+                                      "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                      "<tr><td>Pins</td><td>%d %d</td></tr>"
+                                      "<tr><td>Errors</td><td>%d</td></tr>"
+                                      "<tr><td>Success</td><td>%d</td></tr>"
+                                      "</tbody></table></li>",
+          i.idStr.c_str(),
+          familyIdToNameTranslation(i.familyId).c_str(),
+          i.name.c_str(),
+          i.actuatorPinState[0],
+          i.actuatorPinState[1],
+          i.errors,
+          i.success);
+      } else if (i.familyId == DS2405) {
+        snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                      "<tr><td>Id</td><td>%s</td></tr>"
+                                      "<tr><td>Type</td><td>%s</td></tr>"
+                                      "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                      "<tr><td>Pins</td><td>%d</td></tr>"
+                                      "<tr><td>Errors</td><td>%d</td></tr>"
+                                      "<tr><td>Success</td><td>%d</td></tr>"
+                                      "</tbody></table></li>",
+          i.idStr.c_str(),
+          familyIdToNameTranslation(i.familyId).c_str(),
+          i.name.c_str(),
+          i.actuatorPinState[0],
+          i.errors,
+          i.success);
+      } else if (i.familyId == DS2423) {
+        snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                      "<tr><td>Id</td><td>%s</td></tr>"
+                                      "<tr><td>Type</td><td>%s</td></tr>"
+                                      "<tr><td>Name</td><td>\"%s\"</td></tr>"
+                                      "<tr><td>Counters</td><td>%d %d</td></tr>"
+                                      "<tr><td>Errors</td><td>%d</td></tr>"
+                                      "<tr><td>Success</td><td>%d</td></tr>"
+                                      "</tbody></table></li>",
+          i.idStr.c_str(),
+          familyIdToNameTranslation(i.familyId).c_str(),
+          i.name.c_str(),
+          i.counters[0],
+          i.counters[1],
+          i.errors,
+          i.success);
+      } else {
+        snprintf(buff, sizeof(buff), "<li><table><tbody>"
+                                      "<tr><td>Id</td><td>%s</td></tr>"
+                                      "<tr><td>Type</td><td>%s</td></tr>"                                    
+                                      "</tbody></table></li>", i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str());
+      }
 
-    oneWireList += String(buff);
-    oneWireList += "<hr>";
+      oneWireList += String(buff);
+      oneWireList += "<hr>";
+    }
+    oneWireList += "</ol>";
+    html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
   }
-  oneWireList += "</ol>";
-  html.replace("%ONE_WIRE_DEVICES%" , oneWireList);
 
   webserver.send(200, "text/html", html);
 }
@@ -1034,6 +1061,9 @@ void loadMqttSetting() {
   AutoConnectInput &mqttserver_portElm = mqtt_setting["mqttserver_port"].as<AutoConnectInput>();
   AutoConnectInput &mqtt_topicElm = mqtt_setting["mqtt_base_topic"].as<AutoConnectInput>();
   AutoConnectInput &mqtt_cmdtopicElm = mqtt_setting["mqtt_base_cmdtopic"].as<AutoConnectInput>();
+  // these requires MQTT so they are placed here also.
+  AutoConnectSelect &tinyowc_groupElm = mqtt_setting["tinyowc_group"].as<AutoConnectSelect>();
+  AutoConnectCheckbox &tinyowc_distribute_heatElm = mqtt_setting["tinyowc_distribute_heat"].as<AutoConnectCheckbox>();
 
   if (mqttserverElm.value.length()) {
     mqttserver = mqttserverElm.value;    
@@ -1053,6 +1083,12 @@ void loadMqttSetting() {
     mqtt_cmdtopic = mqtt_base_cmdtopic + "/" + uniqueId;
     ESP_LOGI(TAG, "mqtt_cmdtopic set to '%s'", mqtt_cmdtopic.c_str());
   }
+  if (tinyowc_groupElm.value() != NULL) {
+    tinyowc_group = tinyowc_groupElm.value();
+    ESP_LOGI(TAG, "tinyowc_group set to '%s'", tinyowc_group.c_str());
+  }
+  tinyowc_distribute_heat = tinyowc_distribute_heatElm.value == "checked";
+  ESP_LOGI(TAG, "tinyowc_distribute_heat set to '%s'", String(tinyowc_distribute_heat));
 
   portal.on(AUX_MQTTSETTING, loadMqttParams);
   portal.on(AUX_MQTTSAVE, saveMqttParams);
@@ -1176,7 +1212,7 @@ void setup() {
   config.bootUri = AC_ONBOOTURI_HOME; // add menuitem for OTA update
   config.homeUri = "/";
   config.portalTimeout = 45000; // continue in offline mode after 45 seconds, if WiFi connection not available
-  config.retainPortal = true;   // continue the portal function even if the captive portal timed out
+  config.retainPortal = true;   // continue the portal function even if the captive portal timed out, https://hieromon.github.io/AutoConnect/adcpcontrol.html#launch-the-captive-portal-on-demand-at-losing-wifi
   config.psk = "12345678";      // default password
   config.ota = AC_OTA_BUILTIN;
   portal.config(config);
@@ -1258,6 +1294,7 @@ void actOnSensors() {
       // check if 1 second has elapsed since conversion started, if true then we can read temperature from all temperature sensors.
       if (conversionStarted + 1000000 < esp_timer_get_time()) {
         conversionStarted = 0;
+        uint16_t calculatedHeatRequirement = 0;
 
         for (auto &node : oneWireNodes) {
           if (isTemperatureSensor(node.familyId)) {
@@ -1277,7 +1314,12 @@ void actOnSensors() {
                 node.temperature = temperature;
                 // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
                 if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
-                  if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {  
+                  if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {
+
+                    if (node.temperature < node.lowLimit) {
+                      calculatedHeatRequirement += abs(node.temperature - node.lowLimit);
+                    }
+
                     auto actuatorNode = getOneWireNode(node.actuatorId);
                     if (actuatorNode != nullptr) {
 
@@ -1310,6 +1352,7 @@ void actOnSensors() {
               pushChanges(node);
             }
           } else if (node.familyId == DS2408) {
+            // TODO: in the future when we have managed to read the DS2408 pin states then can use this code, for now we just hope the values we push out is the ones that are aqually set. :-/
             /*uint8_t currentState = getState(ds, node);
             
             if (currentState > -1) {
@@ -1350,6 +1393,7 @@ void actOnSensors() {
           }
         }
 
+        heat_requirement_product = calculatedHeatRequirement;
         numberOfSamplesSinceReboot++;
 
         flushInflux();

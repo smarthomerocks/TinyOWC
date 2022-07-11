@@ -22,6 +22,9 @@ Current settings and status is displayed on the TTGO LCD-display for easy overvi
 ## Build and upload software
 
 To simplify building this software, with all its dependencies, we use the [Platform.io](https://platformio.org/) open source ecosystem. Make sure you have Platform.io installed on your computer before you proceed.
+If you already has Platform.io installed, make sure that its up-to-date by opening a Platform.io terminal and run:
+
+   pio upgrade --dev
 
 ### Compile and upload the firmware
 
@@ -35,9 +38,9 @@ Connect a USB-C cable between your computer and the ESP32 microcontroller, run t
 
 ## Setting up WiFi
 
-When the Tiny-OWC controller is started for the first time (or if the flash has been erased) we need to configure the WiFi settings and bind the controller to your WiFi access point. The Tiny-OWC will setup its own access point with a name like "Tiny-OWC_<some unique id>", connect to that access point using your computer or smartphone and visit the following address using a web browser [http://172.217.28.1/setup/config](http://172.217.28.1/setup/config). Choose your home access point among the detected access points on that page, enter Passphrase and click Apply. The device should now save your settings to flash and reboot, press the reset button on the TTGO controller if not.
+When the Tiny-OWC controller is started for the first time (or if the flash-memory has been erased) we need to configure the WiFi settings and bind the controller to your WiFi access point. The Tiny-OWC will setup its own access point with a name like "Tiny-OWC_<some unique id>", connect to that access point using your computer or smartphone and visit the following address using a web browser [http://172.217.28.1/setup/config](http://172.217.28.1/setup/config). Choose your home access point among the detected access points on that page, enter Passphrase and click Apply. The device should now save your settings to flash-memory and reboot, press the reset button on the Tiny-OWC controller if not.
 
-## Erase flash
+## Erase flash-memory
 
 If the Tiny-OWC controller ever ends up in a bad state where just power-cycling does not help, you could erase all settings and the firmware by erasing the flash-memory on the controller. Connect the controller using a USB-cable to your computer and run:
 
@@ -65,9 +68,12 @@ Example page:
   <html lang="en">
     <body>
       <h3>Tiny-OWC</h3>
-      <p>Board id: 9897</p>
-      <p>WiFi RSSI: -47 dBm (Very good)</p>
+      <p>Board id: <strong>9897</strong></p>
+      <p>Tiny OWC group: <strong>1</strong></p>
+      <p>WiFi RSSI: <strong>-47 dBm (Very good)</strong></p>
       <p>Uptime: <strong>0</strong> days, <strong>20</strong> hours, <strong>40</strong> min, <strong>12</strong> sec</p>
+      <p>Distribute heat within group: <strong>false</strong></p>
+      <p>Calculated heat requirement: <strong>0</strong> (for this controller)</p>
       <h3>1-Wire devices:</h3>
       <ul><li>20.8C930D0000001C (DS2450), errors: 0, success: 6722</li><li>10.7174B5010800EB (DS18S20), temp: 45.4, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6700</li><li>10.4548490108001C (DS18S20), temp: 17.4, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6722</li><li>10.93D84801080052 (DS18S20), temp: 17.7, low-limit: 22, high-limit: 24, status: close, errors: 0, success: 6722</li><li>28.EEA89B19160262 (DS18B20), temp: 23.4, low-limit: 22, high-limit: 24, status: close, errors: 5, success: 6715</li><li>1D.79DE0D000000AC (DS2423), counters: 23 455, errors: 2, success: 6722</li><li>1D.3FE00D0000004D (DS2423), counters: 223 3442, errors: 0, success: 6722</li></ul>
       <p>

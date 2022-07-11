@@ -18,8 +18,9 @@
       {
         "name": "caption",
         "type": "ACText",
+        "posterior": "par",
         "value": "Publishing sensor readings and receiving settings",
-        "style": "font-family:serif;color:#4682b4;"
+        "style": "text-align:center;font-family:serif;color:#4682b4;"
       },
       {
         "name": "mqttserver",
@@ -53,6 +54,31 @@
         "value": "<hr>"
       },
       {
+        "name": "groups",
+        "type": "ACText",
+        "posterior": "par",
+        "value": "Make a number of TinyOWC controllers work together in a group.<br>Select the group this controller should belong to, and check if you want the controllers to distribute heat between themself evenly.<br>Distributing heat will make a controller close shunts if there are a controller in the same group that has an even greater demand for heat.",
+        "style": "font-family:serif;color:#4682b4;"
+      },
+      {
+        "name": "tinyowc_group",
+        "type": "ACSelect",
+        "option": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        "label": "TinyOWC group"
+      },
+      {
+        "name": "tinyowc_distribute_heat",
+        "type": "ACCheckbox",
+        "value": "checked",
+        "label": "Distribute heat",
+        "checked": false
+      },
+      {
+        "name": "newline2",
+        "type": "ACElement",
+        "value": "<hr>"
+      },
+      {
         "name": "save",
         "type": "ACSubmit",
         "value": "Save",
@@ -72,9 +98,8 @@
     "menu": false,
     "element": [
       {
-        "name": "caption",
+        "name": "results",
         "type": "ACText",
-        "value": "<h4>Parameters saved as:</h4>",
         "style": "text-align:center;color:#2f4f4f;padding:10px;"
       }
     ]

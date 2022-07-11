@@ -18,8 +18,9 @@
       {
         "name": "caption",
         "type": "ACText",
+        "posterior": "par",
         "value": "Log readings to a InfluxDB server",
-        "style": "font-family:serif;color:#4682b4;"
+        "style": "text-align:center;font-family:serif;color:#4682b4;"
       },
       {
         "name": "influx_server",
@@ -70,9 +71,8 @@
     "menu": false,
     "element": [
       {
-        "name": "caption",
+        "name": "results",
         "type": "ACText",
-        "value": "<h4>Parameters saved as:</h4>",
         "style": "text-align:center;color:#2f4f4f;padding:10px;"
       }
     ]

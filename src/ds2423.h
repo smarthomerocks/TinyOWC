@@ -3,6 +3,7 @@
 
 #include <DS2480B.h>
 #include "onewire.h"
+#include "tinyowc.h"
 
 #define DS2423_PAGE_ONE 0xC0  // counter A
 #define DS2423_PAGE_TWO 0xE0  // counter B

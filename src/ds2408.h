@@ -5,6 +5,7 @@
 
 #include <DS2480B.h>
 #include "onewire.h"
+#include "tinyowc.h"
 
 #define PIO_LOGIC_STATE_REGISTER 0x88
 #define OUTPUT_LATCH_STATE_REGISTER 0x89
