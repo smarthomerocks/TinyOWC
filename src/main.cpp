@@ -90,8 +90,6 @@ const char Base_Html[] PROGMEM = R"rawliteral(
         *{font-family: courier, arial, helvetica}
         html{line-height:1.15;-webkit-text-size-adjust:100%;box-sizing:border-box;text-rendering:optimizeLegibility}
         img,video{height:auto;max-width:100%}
-        table{border-collapse:collapse;border-spacing:0}
-        td,th{padding:0}
       </style>
     </head>
     <body>
@@ -1211,8 +1209,8 @@ void setup() {
   config.hostName = appName;
   config.bootUri = AC_ONBOOTURI_HOME; // add menuitem for OTA update
   config.homeUri = "/";
-  config.portalTimeout = 45000; // continue in offline mode after 45 seconds, if WiFi connection not available
-  config.retainPortal = true;   // continue the portal function even if the captive portal timed out, https://hieromon.github.io/AutoConnect/adcpcontrol.html#launch-the-captive-portal-on-demand-at-losing-wifi
+  config.portalTimeout = 60000; // continue in offline mode after 60 seconds, if WiFi connection not available
+  config.retainPortal = false;  // DISABLED: continue the portal function even if the captive portal timed out, https://hieromon.github.io/AutoConnect/adcpcontrol.html#launch-the-captive-portal-on-demand-at-losing-wifi
   config.psk = "12345678";      // default password
   config.ota = AC_OTA_BUILTIN;
   portal.config(config);
