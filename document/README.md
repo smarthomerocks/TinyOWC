@@ -1,0 +1,3 @@
+# Power on failure
+
+As have been reported as a [issue](https://github.com/Xinyuan-LilyGO/TTGO-T-Display/issues/9), if the TTGO-T1 board failes to power up when powered from the 5V pins (NOT the USB-connector), the reset button needs to be pressed to start the board. A hack to fix this may be to unsolder the capacitor next to the USB-C connector on the TTGO-T1 board. I have successfully tested this on three of my TTGO-boards!

@@ -20,6 +20,7 @@ struct onewireNode {
   float highLimit = UNSET_TEMPERATURE;       // only applicable on temperature sensors.
   float temperature = UNSET_TEMPERATURE;     // only applicable on temperature sensors.
   float lastTemperature = UNSET_TEMPERATURE; // only applicable on temperature sensors.
+  unsigned long lastOperation = 0;  // last time a operation (read/write) was made on the device (e.g. temperature was updated or pin was set)
   uint16_t failedReadingsInRow = 0; // only applicable on temperature sensors.
   uint32_t errors = 0;  // read/write errors for device (if many then check device and cables)
   uint32_t success = 0; // read/write success operations for device

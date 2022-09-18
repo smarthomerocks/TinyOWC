@@ -17,6 +17,7 @@ extern "C" {
 	#include "freertos/FreeRTOS.h"
 	#include "freertos/timers.h"
 }
+#include "time.h"
 #include "esp_log.h"
 #include "tinyowc.h"
 #include "Button2.h"
@@ -63,6 +64,8 @@ extern "C" {
 #define FORCE_MQTT_PUSH 60000       // if still nothing has changed after this many milliseconds, we force a push to show that we are alive.
 #define TEMPERATURE_HYSTERESIS 0.5  // degrees celsius.
 #define WDT_TIMEOUT_SEC 60          // main loop watchdog, if stalled longer than XX seconds we will reboot.
+
+const char* NTP_SERVER = "pool.ntp.org";
 
 // Use hardware SPI
 TFT_eSPI tft = TFT_eSPI(135, 240);  // Width, Height, screen dimension
@@ -121,6 +124,8 @@ Preferences preferences;
 char buff[1024];
 int64_t conversionStarted = 0;
 
+unsigned long epochTime;
+
 Button2 firstButton = Button2(FIRST_BUTTON);
 Button2 secondButton = Button2(SECOND_BUTTON);
 bool isScanning = false;
@@ -162,6 +167,18 @@ extern void pushAllStateToMQTT();
 extern bool isMqttEnabled();
 
 // ----------------------------------------------------------------------------
+
+// Function that gets current epoch time
+unsigned long getTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    ESP_LOGW(TAG, "Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
+}
 
 void clearScreen() {
   tft.fillScreen(TFT_BLACK);
@@ -798,7 +815,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 void pushStateToMQTT(onewireNode& node) {
   if (isMqttEnabled()) {
     // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
-    StaticJsonDocument<350> jsonNode;
+    StaticJsonDocument<400> jsonNode;
     auto time = getEpocTime();
 
     ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
@@ -808,6 +825,7 @@ void pushStateToMQTT(onewireNode& node) {
     jsonNode["time"] = time;
     jsonNode["errors"] = node.errors;
     jsonNode["success"] = node.success;
+    jsonNode["lastOperation"] = node.lastOperation;
 
     if (isTemperatureSensor(node.familyId)) {
       jsonNode["temp"] = ((int)(node.temperature * 100)) / 100.0; // round to two decimals
@@ -857,7 +875,8 @@ void WiFiEvent(WiFiEvent_t event) {
     switch(event) {
       case SYSTEM_EVENT_STA_GOT_IP:
         ESP_LOGI(TAG, "WiFi connected and got IP.");
-
+        
+        configTime(0, 0, NTP_SERVER);
         connectToMqtt();
         configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
 
@@ -919,6 +938,13 @@ void handle_indexHtml() {
   } else {
     String oneWireList = "<ol>";
     for (auto i : oneWireNodes) {
+
+      time_t epoch_ts = i.lastOperation;
+      struct tm ts; 
+      localtime_r(&epoch_ts, &ts);
+      strftime(buff, sizeof(buff), "%Y-%m-%d %H:%M:%SZ", &ts);
+      auto lastOperation = String(buff);
+
       if (isTemperatureSensor(i.familyId)) {
           if (i.failedReadingsInRow < 5) {
             snprintf(buff, sizeof(buff), "<li><table><tbody>"
@@ -933,6 +959,7 @@ void handle_indexHtml() {
                                         "<tr><td>Status</td><td>%s</td></tr>"
                                         "<tr><td>Errors</td><td>%d</td></tr>"
                                         "<tr><td>Success</td><td>%d</td></tr>"
+                                        "<tr><td>Last reading</td><td>%s</td></tr>"
                                         "</tbody></table></li>", 
             i.idStr.c_str(),
             familyIdToNameTranslation(i.familyId).c_str(),
@@ -944,15 +971,17 @@ void handle_indexHtml() {
             i.actuatorPin,
             shouldActuatorBeActive(i) ? "open" : "closed",
             i.errors,
-            i.success);
+            i.success,
+            lastOperation.c_str());
           } else {
             snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                         "<tr><td>Id</td><td>%s</td></tr>"
                                         "<tr><td>Type</td><td>%s</td></tr>"
                                         "<tr><td>Name</td><td>\"%s\"</td></tr>"
                                         "<tr><td>Status</td><td>Not connected.</td></tr>"
+                                        "<tr><td>Last reading</td><td>%s</td></tr>"
                                         "</tbody></table></li>",
-                                        i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str());
+                                        i.idStr.c_str(), familyIdToNameTranslation(i.familyId).c_str(), i.name.c_str(), i.lastOperation);
           }
       } else if (i.familyId == DS2408) {
         snprintf(buff, sizeof(buff), "<li><table><tbody>"
@@ -962,6 +991,7 @@ void handle_indexHtml() {
                                       "<tr><td>Pins</td><td>%d %d %d %d %d %d %d %d</td></tr>"
                                       "<tr><td>Errors</td><td>%d</td></tr>"
                                       "<tr><td>Success</td><td>%d</td></tr>"
+                                      "<tr><td>Last operation</td><td>%s</td></tr>"
                                       "</tbody></table></li>",
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
@@ -975,7 +1005,8 @@ void handle_indexHtml() {
           i.actuatorPinState[6],
           i.actuatorPinState[7],
           i.errors,
-          i.success);
+          i.success,
+          lastOperation.c_str());
       } else if (i.familyId == DS2406 || i.familyId == DS2413) {
         snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                       "<tr><td>Id</td><td>%s</td></tr>"
@@ -984,6 +1015,7 @@ void handle_indexHtml() {
                                       "<tr><td>Pins</td><td>%d %d</td></tr>"
                                       "<tr><td>Errors</td><td>%d</td></tr>"
                                       "<tr><td>Success</td><td>%d</td></tr>"
+                                      "<tr><td>Last operation</td><td>%s</td></tr>"
                                       "</tbody></table></li>",
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
@@ -991,7 +1023,8 @@ void handle_indexHtml() {
           i.actuatorPinState[0],
           i.actuatorPinState[1],
           i.errors,
-          i.success);
+          i.success,
+          lastOperation.c_str());
       } else if (i.familyId == DS2405) {
         snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                       "<tr><td>Id</td><td>%s</td></tr>"
@@ -1000,13 +1033,15 @@ void handle_indexHtml() {
                                       "<tr><td>Pins</td><td>%d</td></tr>"
                                       "<tr><td>Errors</td><td>%d</td></tr>"
                                       "<tr><td>Success</td><td>%d</td></tr>"
+                                      "<tr><td>Last operation</td><td>%s</td></tr>"
                                       "</tbody></table></li>",
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
           i.name.c_str(),
           i.actuatorPinState[0],
           i.errors,
-          i.success);
+          i.success,
+          lastOperation.c_str());
       } else if (i.familyId == DS2423) {
         snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                       "<tr><td>Id</td><td>%s</td></tr>"
@@ -1015,6 +1050,7 @@ void handle_indexHtml() {
                                       "<tr><td>Counters</td><td>%d %d</td></tr>"
                                       "<tr><td>Errors</td><td>%d</td></tr>"
                                       "<tr><td>Success</td><td>%d</td></tr>"
+                                      "<tr><td>Last operation</td><td>%s</td></tr>"
                                       "</tbody></table></li>",
           i.idStr.c_str(),
           familyIdToNameTranslation(i.familyId).c_str(),
@@ -1022,7 +1058,8 @@ void handle_indexHtml() {
           i.counters[0],
           i.counters[1],
           i.errors,
-          i.success);
+          i.success,
+          lastOperation.c_str());
       } else {
         snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                       "<tr><td>Id</td><td>%s</td></tr>"
@@ -1300,7 +1337,13 @@ void actOnSensors() {
 
             if (reading != UNSET_TEMPERATURE) {
               node.failedReadingsInRow = 0;
+              node.lastOperation = epochTime;
               auto temperature = rawToCelsius(reading);
+
+              // Add this sensors need of more warm water to total sum of requirement for this device.
+              if (node.lowLimit > UNSET_TEMPERATURE && temperature < node.lowLimit) {
+                calculatedHeatRequirement += abs(temperature - node.lowLimit);
+              }
 
               // filter some noise by only including changes larger than 0.5 degrees.
               ESP_LOGD(TAG, "Temp reading: raw %d, temp %.2f, last %.2f", reading, temperature, node.lastTemperature);
@@ -1312,11 +1355,8 @@ void actOnSensors() {
                 node.temperature = temperature;
                 // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
                 if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
+                  // temperature is outside boundary, compensate by signaling control pin of shunt.
                   if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {
-
-                    if (node.temperature < node.lowLimit) {
-                      calculatedHeatRequirement += abs(node.temperature - node.lowLimit);
-                    }
 
                     auto actuatorNode = getOneWireNode(node.actuatorId);
                     if (actuatorNode != nullptr) {
@@ -1331,6 +1371,7 @@ void actOnSensors() {
                       actuatorState = setState(ds, *actuatorNode, actuatorState);
                       // if we managed to set state.
                       if (actuatorState > -1) {
+                        actuatorNode->lastOperation = epochTime;
                         actuatorNode->actuatorPinState[node.actuatorPin] = !shouldActuatorBeActive(node);  // Low means On (reversed logic)
 
                         ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN).c_str(), String(actuatorState, BIN).c_str());
@@ -1376,6 +1417,7 @@ void actOnSensors() {
           } else if (node.familyId == DS2423) {
             auto a = getCounter(ds, node, 0);
             auto b = getCounter(ds, node, 1);
+            node.lastOperation = epochTime;
 
             if (a >= 0) {
               node.counters[0] = a;
@@ -1421,6 +1463,8 @@ void printLoopProgress() {
 }
 
 void loop() {
+  epochTime = getTime();
+
   firstButton.loop();
   secondButton.loop();
 

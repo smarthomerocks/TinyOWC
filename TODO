@@ -1,3 +1,7 @@
+- Fix tinyowc_distribute_heat set to true on first setup
+- Implement heat distribution logic with the help of groups and a separate MQTT-topic(?)
+- Implement logic for always having one shunt open within a single group, to prevent pump from working against all closed shunts
 - Add retry logic for reading counters in DS2423
 - Support more than _one_ DS2408 on a 1-Wire buss, current SKIP_ROM prevent this.
-- Security support (MQTT and HTML)
+- Security support (credentials for MQTT and login for HTML status page)
+- Use Server Side Events instead of hacky full-page reload every 10 seconds
