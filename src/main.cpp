@@ -207,7 +207,7 @@ void printState() {
 
     tft.setTextSize(1);
     tft.setCursor(0, tft.height() - tft.fontHeight());
-    tft.printf("state: %s\n", text.c_str());
+    tft.printf("State: %s\n", text.c_str());
 }
 
 /**
@@ -580,8 +580,9 @@ void printOneWireNodes() {
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
 
-  tft.drawString("Samples since power-on: " + String(numberOfSamplesSinceReboot), 0, tft.height() - tft.fontHeight() * 2);
-  Serial.println("Samples since power-on: " + String(numberOfSamplesSinceReboot));
+  tft.setCursor(0, tft.height() - tft.fontHeight() * 2);
+  snprintf(buff, sizeof(buff), "Device: %s, samples: %d", uniqueId, numberOfSamplesSinceReboot);
+  tft.println(buff);
 
   shownNodePage++;
   if (shownNodePage > availableNodePages) shownNodePage = 1;
@@ -893,6 +894,13 @@ void WiFiEvent(WiFiEvent_t event) {
     }
 }
 
+String formatLimitValue(float value) {
+  if (value == UNSET_TEMPERATURE) {
+    return "";
+  }
+  return String(roundf(value * 10) / 10);
+}
+
 void handle_indexHtml() {
   auto html = String(Base_Html);
 
@@ -952,8 +960,8 @@ void handle_indexHtml() {
                                         "<tr><td>Type</td><td>%s</td></tr>"
                                         "<tr><td>Name</td><td>\"%s\"</td></tr>"
                                         "<tr><td>Temp</td><td>%.1f</td></tr>"
-                                        "<tr><td>Low-limit</td><td>%.1f</td></tr>"
-                                        "<tr><td>High-limit</td><td>%.1f</td></tr>"
+                                        "<tr><td>Low-limit</td><td>%s</td></tr>"
+                                        "<tr><td>High-limit</td><td>%s</td></tr>"
                                         "<tr><td>Actuator-id</td><td>%s</td></tr>"
                                         "<tr><td>Actuator-pin</td><td>%d</td></tr>"
                                         "<tr><td>Status</td><td>%s</td></tr>"
@@ -965,8 +973,8 @@ void handle_indexHtml() {
             familyIdToNameTranslation(i.familyId).c_str(),
             i.name.c_str(),
             i.temperature,
-            i.lowLimit,
-            i.highLimit,
+            formatLimitValue(i.lowLimit).c_str(),
+            formatLimitValue(i.highLimit).c_str(),
             idToString(i.actuatorId).c_str(),
             i.actuatorPin,
             shouldActuatorBeActive(i) ? "open" : "closed",
