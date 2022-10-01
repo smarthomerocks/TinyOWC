@@ -341,6 +341,7 @@ void loadSettings() {
     
     node.name = jsonNode["name"].as<String>();
     node.actuatorPin = jsonNode["actuatorPin"] | -1;
+    node.stateOverride = jsonNode["stateOverride"] | 'A';
     node.lowLimit = jsonNode["lowLimit"] | UNSET_TEMPERATURE;
     node.highLimit = jsonNode["highLimit"] | UNSET_TEMPERATURE;
 
@@ -371,6 +372,7 @@ void saveSettings(std::vector<onewireNode> &nodes) {
       jsonNode["name"] = "";
     }
     jsonNode["actuatorPin"] = n.actuatorPin;
+    jsonNode["stateOverride"] = n.stateOverride;
     jsonNode["lowLimit"] = n.lowLimit;
     jsonNode["highLimit"] = n.highLimit;
   }
@@ -775,6 +777,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       "name": "bedroom",
       "actuatorId": "29.29E1030000009C",
       "actuatorPin": 0,
+      "stateOverride": "1",
       "lowLimit": 22,
       "highLimit": 24
     }
@@ -783,6 +786,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     auto name = doc["name"].as<String>();
     auto actuatorId = doc["actuatorId"];
     auto actuatorPin = doc["actuatorPin"] | -1;
+    char stateOverride = doc["stateOverride"] | 'A';
     auto lowLimit = doc["lowLimit"] | UNSET_TEMPERATURE;
     auto highLimit = doc["highLimit"] | UNSET_TEMPERATURE;
 
@@ -793,6 +797,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       auto node = it.base();
       stringToId(actuatorId, node->actuatorId);
       node->actuatorPin = actuatorPin;
+      node->stateOverride = stateOverride;
       node->lowLimit = lowLimit;
       node->highLimit = highLimit;
 
@@ -816,13 +821,14 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 void pushStateToMQTT(onewireNode& node) {
   if (isMqttEnabled()) {
     // USE this if modifying JSON-message, https://arduinojson.org/v6/assistant/
-    StaticJsonDocument<400> jsonNode;
+    StaticJsonDocument<400> jsonNode; // currently we are at 384 bytes.
     auto time = getEpocTime();
 
     ESP_LOGD(TAG, "Pushing state to MQTT broker, node: %s.", node.idStr.c_str());
 
     jsonNode["id"] = node.idStr;
     jsonNode["name"] = node.name;
+    jsonNode["tinyOwcId"] = uniqueId;
     jsonNode["time"] = time;
     jsonNode["errors"] = node.errors;
     jsonNode["success"] = node.success;
@@ -835,6 +841,7 @@ void pushStateToMQTT(onewireNode& node) {
       jsonNode["status"] = shouldActuatorBeActive(node);
       jsonNode["actuatorId"] = idToString(node.actuatorId);
       jsonNode["actuatorPin"] = node.actuatorPin;
+      jsonNode["stateOverride"] = node.stateOverride;      
     } else if (node.familyId == DS2408) {
       auto pinStateArray = jsonNode.createNestedArray("pinState");
       for (auto i : node.actuatorPinState) {
@@ -896,9 +903,16 @@ void WiFiEvent(WiFiEvent_t event) {
 
 String formatLimitValue(float value) {
   if (value == UNSET_TEMPERATURE) {
-    return "";
+    return "-";
   }
   return String(roundf(value * 10) / 10);
+}
+
+String formatActuatorPinValue(int8_t value) {
+  if (value < 0) {
+    return "-";
+  }
+  return String(value);
 }
 
 void handle_indexHtml() {
@@ -954,6 +968,8 @@ void handle_indexHtml() {
       auto lastOperation = String(buff);
 
       if (isTemperatureSensor(i.familyId)) {
+
+
           if (i.failedReadingsInRow < 5) {
             snprintf(buff, sizeof(buff), "<li><table><tbody>"
                                         "<tr><td>Id</td><td>%s</td></tr>"
@@ -963,7 +979,8 @@ void handle_indexHtml() {
                                         "<tr><td>Low-limit</td><td>%s</td></tr>"
                                         "<tr><td>High-limit</td><td>%s</td></tr>"
                                         "<tr><td>Actuator-id</td><td>%s</td></tr>"
-                                        "<tr><td>Actuator-pin</td><td>%d</td></tr>"
+                                        "<tr><td>Actuator-pin</td><td>%s</td></tr>"
+                                        "<tr><td>State override</td><td>%s</td></tr>"
                                         "<tr><td>Status</td><td>%s</td></tr>"
                                         "<tr><td>Errors</td><td>%d</td></tr>"
                                         "<tr><td>Success</td><td>%d</td></tr>"
@@ -976,7 +993,8 @@ void handle_indexHtml() {
             formatLimitValue(i.lowLimit).c_str(),
             formatLimitValue(i.highLimit).c_str(),
             idToString(i.actuatorId).c_str(),
-            i.actuatorPin,
+            i.actuatorPin > -1 ? i.actuatorPin : '-',
+            i.stateOverride,
             shouldActuatorBeActive(i) ? "open" : "closed",
             i.errors,
             i.success,
@@ -1324,6 +1342,47 @@ void pushChanges(onewireNode& node) {
   }
 }
 
+/**
+ * @brief Set a actuator pin
+ * 
+ * @param actuatorId 
+ * @param actuatorPin 
+ * @param pinState 
+ * @return true pin was successfully set
+ * @return false pin was not set, operation failed or actuator was not found, or no actuatorPin was specified.
+ */
+bool setActuator(uint8_t actuatorId[8], int8_t actuatorPin, bool pinState) {
+  if (actuatorPin < 0) {
+    return false;
+  }
+
+  auto actuatorNode = getOneWireNode(actuatorId);
+
+  if (actuatorNode == nullptr) {
+    return false;
+  }
+
+  // populate actuatorState with current state
+  uint8_t actuatorState = 0;
+  for (auto i = 0; i < 8; i++) {
+    bitWrite(actuatorState, i, !actuatorNode->actuatorPinState[i]);  // invert, low means On (reversed logic)
+  }
+  auto oldActuatorState = actuatorState;
+
+  bitWrite(actuatorState, actuatorPin, !pinState);  // invert bit since 1 means relay off.
+  auto response = setState(ds, *actuatorNode, actuatorState);
+  // if we managed to set state.
+  if (response > -1) {
+    actuatorNode->lastOperation = epochTime;
+    actuatorNode->actuatorPinState[actuatorPin] = pinState;
+
+    ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(~oldActuatorState, BIN).c_str(), String(~actuatorState, BIN).c_str());
+    pushChanges(*actuatorNode);
+    return true;
+  }
+  return false;
+}
+
 // Main work of Tiny-OWC done here.
 void actOnSensors() {
   auto currentMillis = millis();
@@ -1341,6 +1400,13 @@ void actOnSensors() {
 
         for (auto &node : oneWireNodes) {
           if (isTemperatureSensor(node.familyId)) {
+
+            if (node.stateOverride == '1') {
+              setActuator(node.actuatorId, node.actuatorPin, true);
+            } else if (node.stateOverride == '0') {
+              setActuator(node.actuatorId, node.actuatorPin, false);
+            }
+
             auto reading = readConversion(ds, node);
 
             if (reading != UNSET_TEMPERATURE) {
@@ -1361,31 +1427,11 @@ void actOnSensors() {
               if (abs(temperature - node.temperature) >= TEMPERATURE_HYSTERESIS && temperature < 85.0) {
                 node.lastTemperature = node.temperature == UNSET_TEMPERATURE ? temperature : node.temperature;
                 node.temperature = temperature;
-                // If sensor has lowlimit, highlimit and a DS2408 pin to control, then control pin output according to temperature.
-                if (node.actuatorPin > -1 && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
+                // If sensor is set to automatic control and has lowlimit and highlimit values, then set control pin output according to temperature.
+                if (node.stateOverride == 'A' && node.lowLimit > UNSET_TEMPERATURE && node.highLimit > UNSET_TEMPERATURE) {
                   // temperature is outside boundary, compensate by signaling control pin of shunt.
                   if (node.temperature < node.lowLimit || node.temperature > node.highLimit) {
-
-                    auto actuatorNode = getOneWireNode(node.actuatorId);
-                    if (actuatorNode != nullptr) {
-
-                      uint8_t actuatorState = 0;
-                      for (auto i = 0; i < 8; i++) {
-                        bitWrite(actuatorState, i, actuatorNode->actuatorPinState[i]);
-                      }
-                      auto oldActuatorState = actuatorState;
-
-                      bitWrite(actuatorState, node.actuatorPin, !shouldActuatorBeActive(node));  // invert bit since 1 means relay off.
-                      actuatorState = setState(ds, *actuatorNode, actuatorState);
-                      // if we managed to set state.
-                      if (actuatorState > -1) {
-                        actuatorNode->lastOperation = epochTime;
-                        actuatorNode->actuatorPinState[node.actuatorPin] = !shouldActuatorBeActive(node);  // Low means On (reversed logic)
-
-                        ESP_LOGI(TAG, "Adjusted actuator state, old value: %s, new value: %s.", String(oldActuatorState, BIN).c_str(), String(actuatorState, BIN).c_str());
-                        pushChanges(*actuatorNode);
-                      }
-                    }
+                    setActuator(node.actuatorId, node.actuatorPin, shouldActuatorBeActive(node));
                   }
                 }
                 

@@ -111,29 +111,35 @@ Example for a temperature sensor:
 {
    "id":"28.EE8FD119160230",
    "name":"bedroom",
+   "tinyOwcId": "d891",
    "time":1598560516535,
    "errors":0,
    "success":421,
+   "lastOperation": 1664629225,
    "temp":23.68,
    "lowLimit":22,
    "highLimit":24,
    "status":false,
    "actuatorId":"29.3E4D1300000068",
-   "actuatorPin":1
+   "actuatorPin":1,
+   "stateOverride": "A"
 }
 ```
 
 - **id** - 1-Wire id of the device (always unique)
 - **name** - optional field for naming a device. Maximum 20 characters, whitespace allowed.
+- **tinyOwcId** - unique id of TinyOWC board
 - **time** - "Unix epoc"-time (milliseconds since 1970-01-01), this is used to see how old this reading is.
 - **errors** - Number of errors detected when communicating with 1-Wire device. Many errors could indicate problems with wirings or the device.
 - **success** - Number of successful operations performed when communicating with 1-Wire device.
+- **lastOperation** - "Unix epoc"-time (milliseconds since 1970-01-01), last time device was read from / written to.
 - **temp** - temperature in degrees celsius, with two decimals.
 - **lowLimit** - low limit temperature, below this temperature and the sensor should activate a actuator to start heating the room.
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
 - **status** - if the sensor has activated a actuator.
 - **actuatorId** - the actuator this sensor is bound to (should control).
 - **actuatorPin** - the pin of the actuator that should be set high/low whenever temperature is outside the range. **First pin is "0", second "1" and so forth**.
+- **stateOverride** - has three different value: **"0"** manually set to off, **"1"** manually set to on, **"A"** automatic mode (will open/close shunt based upon temperature relative to lowLimit and highLimit)
 
 To subscribe to all updates for a Tiny-OWC controller you could use wildcards like "#". e.g.
 ```
@@ -162,7 +168,8 @@ It currently supports one operation, "setSensor", to configure a sensor. The pay
   "actuatorId": "29.3E4D1300000068",
   "actuatorPin": 1,
   "lowLimit": 22,
-  "highLimit": 23
+  "highLimit": 23,
+  "stateOverride": "A"
 }
 ```
 
@@ -173,6 +180,7 @@ It currently supports one operation, "setSensor", to configure a sensor. The pay
 - **highLimit** - high limit temperature, above this temperature and the sensor should deactivate a actuator to stop heating the room.
 - **actuatorId** - the actuator this sensor should bind to (should control).
 - **actuatorPin** - the pin of the actuator that should be set high/low whenever temperature is outside the range. **First pin is "0", second "1" and so forth**.
+- **stateOverride** - has three different value: **"0"** manually set to off, **"1"** manually set to on, **"A"** automatic mode (will open/close shunt based upon temperature relative to lowLimit and highLimit)
 
 ## InfluxDB
 

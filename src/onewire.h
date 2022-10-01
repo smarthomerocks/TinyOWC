@@ -29,6 +29,7 @@ struct onewireNode {
   int8_t actuatorPin = -1;    // only applicable on temperature sensors.
   bool actuatorPinState[8] = {false, false, false, false, false, false, false, false}; // only applicable on DS2405, DS2406, DS2413 and DS2408 nodes.
   uint32_t counters[2] = {0, 0};  // only applicable on DS2423 nodes. Only external counters (A & B) exposed.
+  char stateOverride = 'A'; // only applicable on temperature sensors with a actuatorPin set. '1' -> actuatorPin is always set to 1, '0' -> actuatorPin is always set to 0, 'A' (as in automatic) -> actuatorPin is set to 1 when temperature is below "lowLimit" and 0 then temperature is higher than highLimit.
 };
 
 std::vector<onewireNode> oneWireNodes;
