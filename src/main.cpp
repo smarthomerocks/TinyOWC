@@ -841,7 +841,7 @@ void pushStateToMQTT(onewireNode& node) {
       jsonNode["status"] = shouldActuatorBeActive(node);
       jsonNode["actuatorId"] = idToString(node.actuatorId);
       jsonNode["actuatorPin"] = node.actuatorPin;
-      jsonNode["stateOverride"] = node.stateOverride;      
+      jsonNode["stateOverride"] = String(node.stateOverride);
     } else if (node.familyId == DS2408) {
       auto pinStateArray = jsonNode.createNestedArray("pinState");
       for (auto i : node.actuatorPinState) {
@@ -993,8 +993,8 @@ void handle_indexHtml() {
             formatLimitValue(i.lowLimit).c_str(),
             formatLimitValue(i.highLimit).c_str(),
             idToString(i.actuatorId).c_str(),
-            i.actuatorPin > -1 ? i.actuatorPin : '-',
-            i.stateOverride,
+            i.actuatorPin > -1 ? String(i.actuatorPin).c_str() : String('-').c_str(),
+            String(i.stateOverride).c_str(),
             shouldActuatorBeActive(i) ? "open" : "closed",
             i.errors,
             i.success,
