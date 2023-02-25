@@ -211,15 +211,6 @@ void printState() {
 }
 
 /**
- * Gets seconds since Unix epoctime (1970-01-01)
- */
-int64_t getEpocTime() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (tv.tv_sec * 1000LL + (tv.tv_usec / 1000LL));
-}
-
-/**
  * Get current date/time as a string
  * @param format e.g. "%d %b %Y, %H:%M:%S%z"
  * @param timeout for how many milliseconds we try to obtain time
@@ -341,7 +332,7 @@ void loadSettings() {
     
     node.name = jsonNode["name"].as<String>();
     node.actuatorPin = jsonNode["actuatorPin"] | -1;
-    node.stateOverride = jsonNode["stateOverride"] | 'A';
+    node.stateOverride = jsonNode["stateOverride"].as<const char>() | 'A';
     node.lowLimit = jsonNode["lowLimit"] | UNSET_TEMPERATURE;
     node.highLimit = jsonNode["highLimit"] | UNSET_TEMPERATURE;
 
@@ -372,7 +363,7 @@ void saveSettings(std::vector<onewireNode> &nodes) {
       jsonNode["name"] = "";
     }
     jsonNode["actuatorPin"] = n.actuatorPin;
-    jsonNode["stateOverride"] = n.stateOverride;
+    jsonNode["stateOverride"] = byte(n.stateOverride);
     jsonNode["lowLimit"] = n.lowLimit;
     jsonNode["highLimit"] = n.highLimit;
   }
@@ -582,8 +573,10 @@ void printOneWireNodes() {
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
 
-  tft.setCursor(0, tft.height() - tft.fontHeight() * 2);
+  tft.setCursor(0, tft.height() - tft.fontHeight() * 3);
   snprintf(buff, sizeof(buff), "Device: %s, samples: %d", uniqueId, numberOfSamplesSinceReboot);
+  tft.println(buff);
+  snprintf(buff, sizeof(buff), "IP-address: %s", WiFi.localIP().toString());
   tft.println(buff);
 
   shownNodePage++;
@@ -733,9 +726,10 @@ void onMqttConnect(bool sessionPresent) {
   if (mqtt_cmdtopic.length() > 0) {
     // TODO: should we subscribe if session is already pressent? Maybe not...
     mqttClient.subscribe(mqtt_cmdtopic.c_str(), 1);
-    // make sure broker has our current state.
-    pushAllStateToMQTT();
   }
+
+  // make sure broker has our current state.
+  pushAllStateToMQTT();
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -786,7 +780,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     auto name = doc["name"].as<String>();
     auto actuatorId = doc["actuatorId"];
     auto actuatorPin = doc["actuatorPin"] | -1;
-    char stateOverride = doc["stateOverride"] | 'A';
+    char stateOverride = doc["stateOverride"].as<const char>() | 'A';
     auto lowLimit = doc["lowLimit"] | UNSET_TEMPERATURE;
     auto highLimit = doc["highLimit"] | UNSET_TEMPERATURE;
 
@@ -871,6 +865,25 @@ void pushStateToMQTT(onewireNode& node) {
 }
 
 void pushAllStateToMQTT() {
+  // push general information to main device topic
+  StaticJsonDocument<100> jsonNode;
+
+  jsonNode["state"] = "connected";
+  jsonNode["rssi"] = WiFi.RSSI();
+  jsonNode["ip"] = WiFi.localIP().toString();
+  jsonNode["tinyOwcGroup"] = tinyowc_group;
+  jsonNode["heatRequirement"] = heat_requirement_product;
+  jsonNode["distributeHeat"] = tinyowc_distribute_heat;
+  snprintf(buff, sizeof(buff), "%s %s", __DATE__, __TIME__);
+  jsonNode["buildTime"] = String(buff);
+
+  String jsonString;
+  serializeJson(jsonNode, jsonString);
+  if (mqttClient.publish(mqtt_topic.c_str(), 2, true, jsonString.c_str()) == 0) {
+    ESP_LOGI(TAG, "Failed to publish general state to MQTT broker.");
+  }
+
+  // push each 1-wire nodes information to subtopic
   for (auto &node : oneWireNodes) {
     pushStateToMQTT(node);
     node.millisWhenLastPush = millis();
@@ -882,11 +895,10 @@ void pushAllStateToMQTT() {
 void WiFiEvent(WiFiEvent_t event) {
     switch(event) {
       case SYSTEM_EVENT_STA_GOT_IP:
-        ESP_LOGI(TAG, "WiFi connected and got IP.");
+        ESP_LOGI(TAG, "WiFi connected and got IP: %s.", WiFi.localIP().toString());
         
         configTime(0, 0, NTP_SERVER);
         connectToMqtt();
-        configTime(1 * 3600, 1 * 3600, "pool.ntp.org"); // second parameter is daylight offset (3600 = summertime)
 
         break;
       case SYSTEM_EVENT_STA_DISCONNECTED:
@@ -1162,10 +1174,9 @@ void loadMqttSetting() {
     mqttClient.onMessage(onMqttMessage);
     mqttClient.setClientId(appName.c_str());
     mqttClient.setMaxTopicLength(256);
-    mqttClient.setWill(mqtt_topic.c_str(), 2, true, "DISCONNECTED");
+    mqttClient.setWill(mqtt_topic.c_str(), 2, true, "{\"state\": \"disconnected\"}");
     mqttClient.setServer(mqttserver.c_str(), mqttserver_port.toInt());
     mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
-    WiFi.onEvent(WiFiEvent);
     tft.println("MQTT support loaded.");
   }
 }
@@ -1282,6 +1293,7 @@ void setup() {
   webserver.on("/ping", handle_ping);
   portal.onDetect(startedCapturePortal);
   
+  WiFi.onEvent(WiFiEvent);
   WiFi.setSleep(false); // https://github.com/espressif/arduino-esp32/issues/1484
 
   portalConnected = portal.begin();
