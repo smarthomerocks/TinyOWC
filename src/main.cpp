@@ -131,6 +131,7 @@ Button2 secondButton = Button2(SECOND_BUTTON);
 bool isScanning = false;
 long lastReadingTime = 0;
 long wifiReadingTime = 0;
+long lastPushedGeneralMQTT = 0;
 long numberOfSamplesSinceReboot = 0;
 
 DS2480B ds(Serial2);
@@ -864,24 +865,30 @@ void pushStateToMQTT(onewireNode& node) {
   }
 }
 
-void pushAllStateToMQTT() {
-  // push general information to main device topic
-  StaticJsonDocument<100> jsonNode;
+// push general device information to main device topic
+void pushGeneralInfoToMQTT() {
+  if (WiFi.isConnected() && isMqttEnabled()) {
+    StaticJsonDocument<100> jsonNode;
 
-  jsonNode["state"] = "connected";
-  jsonNode["rssi"] = WiFi.RSSI();
-  jsonNode["ip"] = WiFi.localIP().toString();
-  jsonNode["tinyOwcGroup"] = tinyowc_group;
-  jsonNode["heatRequirement"] = heat_requirement_product;
-  jsonNode["distributeHeat"] = tinyowc_distribute_heat;
-  snprintf(buff, sizeof(buff), "%s %s", __DATE__, __TIME__);
-  jsonNode["buildTime"] = String(buff);
+    jsonNode["state"] = "connected";
+    jsonNode["rssi"] = WiFi.RSSI();
+    jsonNode["ip"] = WiFi.localIP().toString();
+    jsonNode["tinyOwcGroup"] = tinyowc_group;
+    jsonNode["heatRequirement"] = heat_requirement_product;
+    jsonNode["distributeHeat"] = tinyowc_distribute_heat;
+    snprintf(buff, sizeof(buff), "%s %s", __DATE__, __TIME__);
+    jsonNode["buildTime"] = String(buff);
 
-  String jsonString;
-  serializeJson(jsonNode, jsonString);
-  if (mqttClient.publish(mqtt_topic.c_str(), 2, true, jsonString.c_str()) == 0) {
-    ESP_LOGI(TAG, "Failed to publish general state to MQTT broker.");
+    String jsonString;
+    serializeJson(jsonNode, jsonString);
+    if (mqttClient.publish(mqtt_topic.c_str(), 2, true, jsonString.c_str()) == 0) {
+      ESP_LOGI(TAG, "Failed to publish general state to MQTT broker.");
+    }
   }
+}
+
+void pushAllStateToMQTT() {
+  pushGeneralInfoToMQTT();
 
   // push each 1-wire nodes information to subtopic
   for (auto &node : oneWireNodes) {
@@ -1529,8 +1536,8 @@ void printLoopProgress() {
 }
 
 void loop() {
+  auto now = millis();
   epochTime = getTime();
-
   firstButton.loop();
   secondButton.loop();
 
@@ -1550,12 +1557,17 @@ void loop() {
     printLoopProgress();
   }
 
-  if (WiFi.isConnected() && wifiReadingTime + SAMPLE_DELAY < millis()) {
+  if (WiFi.isConnected() && wifiReadingTime + SAMPLE_DELAY < now) {
     writeWiFiSignalStrength(appName);
-    wifiReadingTime = millis();
+    wifiReadingTime = now;
   }
 
   printState();
+
+  if (lastPushedGeneralMQTT + FORCE_MQTT_PUSH < now) {
+    pushGeneralInfoToMQTT();
+    lastPushedGeneralMQTT = now;
+  }
 
   esp_task_wdt_reset(); // reset watchdog to show that we are still alive.
 }
